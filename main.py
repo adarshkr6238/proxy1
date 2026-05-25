@@ -8,7 +8,7 @@ from bot.config.config import Config
 from bot.services.queue_manager import QueueManager
 from bot.services.storage_service import setup_storage, cleanup_old_files
 from bot.handlers.commands import start_cmd, help_cmd, settings_cmd, set_preset_cb, stats_cmd, queue_cmd
-from bot.handlers.media_handler import handle_video, process_video_task
+from bot.handlers.media_handler import handle_video, download_stage, compression_stage
 
 # Configure logging
 logging.basicConfig(
@@ -42,19 +42,20 @@ class VideoBot(Client):
             workers=8
         )
         self.queue_manager = QueueManager(self)
-        self.queue_manager.process_task = self._process_task_bridge
+        self.queue_manager.process_download = self._download_bridge
+        self.queue_manager.process_compression = self._compression_bridge
 
-    async def _process_task_bridge(self, task):
-        await process_video_task(self, task, self.queue_manager)
+    async def _download_bridge(self, task):
+        await download_stage(self, task)
+
+    async def _compression_bridge(self, task):
+        await compression_stage(self, task, self.queue_manager)
 
     async def start(self):
         await super().start()
         setup_storage()
-        # Start queue worker
         self.queue_manager.start_worker()
-        # Start health check server
         asyncio.create_task(start_health_server())
-        # Start periodic cleanup
         asyncio.create_task(self._cleanup_loop())
         logger.info("Bot started successfully!")
 

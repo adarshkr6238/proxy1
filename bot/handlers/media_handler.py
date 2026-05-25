@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 async def handle_video(client, message, queue_manager):
     user_id = message.from_user.id
-
     if not message.video and not message.document:
         return
 
@@ -22,17 +21,15 @@ async def handle_video(client, message, queue_manager):
         if not mime.startswith("video/"):
             return
 
-    # Ensure storage exists
     setup_storage()
-
-    # Add to queue
     status_msg = await message.reply_text("⏳ Adding to queue...", quote=True)
     
     task = {
         'message': message,
         'status_msg': status_msg,
         'user_id': user_id,
-        'paths': []
+        'paths': [],
+        'input_path': None
     }
     
     success, pos = await queue_manager.add_task(task)
@@ -40,18 +37,13 @@ async def handle_video(client, message, queue_manager):
         await status_msg.edit_text(f"❌ {pos}")
         return
 
-    if pos > 0:
-        await status_msg.edit_text(f"📝 Added to queue at position {pos}")
-    else:
-        await status_msg.edit_text("⚙️ Processing started...")
+    await status_msg.edit_text(f"📝 Added to queue (Position: {pos})\n\nVideos in queue are pre-downloaded to save time!")
 
-async def process_video_task(client, task, queue_manager):
+async def download_stage(client, task):
     message = task['message']
     status_msg = task['status_msg']
-    user_id = task['user_id']
     
-    # 1. Download
-    await status_msg.edit_text("📥 Downloading...")
+    await status_msg.edit_text("📥 Pre-downloading in background...")
     start_time = time.time()
     last_update = start_time
     
@@ -59,6 +51,7 @@ async def process_video_task(client, task, queue_manager):
     file_ext = os.path.splitext(media.file_name or "video.mp4")[1]
     input_path = os.path.join(Config.DOWNLOAD_DIR, f"{message.id}{file_ext}")
     task['paths'].append(input_path)
+    task['input_path'] = input_path
 
     async def down_progress(current, total):
         nonlocal last_update
@@ -66,10 +59,17 @@ async def process_video_task(client, task, queue_manager):
 
     try:
         await message.download(file_name=input_path, progress=down_progress)
+        await status_msg.edit_text("✅ Downloaded! Waiting for compression slot...")
     except Exception as e:
         await status_msg.edit_text(f"❌ Download failed: {e}")
-        return
+        raise e
 
+async def compression_stage(client, task, queue_manager):
+    message = task['message']
+    status_msg = task['status_msg']
+    user_id = task['user_id']
+    input_path = task['input_path']
+    
     # 2. Compress
     preset_name = queue_manager.get_user_preset(user_id)
     output_path = os.path.join(Config.TEMP_DIR, f"compressed_{message.id}.mp4")
@@ -101,9 +101,8 @@ async def process_video_task(client, task, queue_manager):
         orig_size = os.path.getsize(input_path)
         comp_size = os.path.getsize(output_path)
         
-        # FAILSAFE: If compressed is larger, use original
         if comp_size >= orig_size:
-            await status_msg.edit_text("⚠️ Compressed file was larger than original. Sending original instead.")
+            await status_msg.edit_text("⚠️ Compressed file was larger. Sending original.")
             upload_path = input_path
             final_size = orig_size
             saved_str = "0% (Already optimized)"
@@ -128,8 +127,6 @@ async def process_video_task(client, task, queue_manager):
             progress=up_progress
         )
         await status_msg.delete()
-        
-        # Immediate post-task cleanup
         import gc
         gc.collect() 
     except Exception as e:
