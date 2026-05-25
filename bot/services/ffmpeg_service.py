@@ -67,7 +67,7 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
         'ffmpeg', '-y', '-i', input_path,
         '-threads', '0', # Auto-optimal threads
         '-c:v', 'libx264', '-preset', 'superfast', # Faster preset
-        '-b:v', v_bitrate, '-maxrate', v_bitrate, '-bufsize', '1M',
+        '-b:v', v_bitrate, # Simple target bitrate
         '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
     ]
     
@@ -91,9 +91,9 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 
             line = chunk.decode('utf-8', errors='ignore')
             
-            # Keep track of last few lines for error reporting
+            # Keep track of more lines for error reporting (20 lines)
             last_error_lines.append(line)
-            if len(last_error_lines) > 5:
+            if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
 
             if "time=" in line:
