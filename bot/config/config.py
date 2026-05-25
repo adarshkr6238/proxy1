@@ -13,9 +13,9 @@ class Config:
     AUTH_USERS = set(int(x) for x in os.getenv("AUTH_USERS", "").split(",") if x.strip())
     AUTH_USERS.add(OWNER_ID)
     
-    # Storage settings
-    DOWNLOAD_DIR = "/tmp/bot_downloads"
-    TEMP_DIR = "/tmp/bot_temp"
+    # Storage settings (Local paths are more stable on HF)
+    DOWNLOAD_DIR = "downloads"
+    TEMP_DIR = "work_temp"
     
     # FFmpeg presets (Logic handled in ffmpeg_service.py)
     PRESETS = {

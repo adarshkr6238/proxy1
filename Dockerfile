@@ -25,7 +25,7 @@ USER user
 
 COPY --chown=user . .
 
-# Ensure tmp directories exist and are writable
-RUN mkdir -p /tmp/bot_downloads /tmp/bot_temp
+# Ensure storage directories exist and are writable
+RUN mkdir -p downloads work_temp && chmod 777 downloads work_temp
 
 CMD ["python", "main.py"]

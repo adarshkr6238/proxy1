@@ -8,8 +8,7 @@ logger = logging.getLogger(__name__)
 
 def setup_storage():
     for d in [Config.DOWNLOAD_DIR, Config.TEMP_DIR]:
-        if not os.path.exists(d):
-            os.makedirs(d)
+        os.makedirs(d, exist_ok=True)
 
 def cleanup_old_files():
     # Only delete files older than 2 hours to avoid killing active tasks
