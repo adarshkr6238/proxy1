@@ -2,7 +2,6 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.config.config import Config
 
-@Client.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message: Message):
     if message.from_user.id not in Config.AUTH_USERS:
         return
@@ -16,7 +15,6 @@ async def start_cmd(client, message: Message):
         ])
     )
 
-@Client.on_message(filters.command("help") & filters.private)
 async def help_cmd(client, message: Message):
     if message.from_user.id not in Config.AUTH_USERS:
         return
@@ -33,7 +31,6 @@ async def help_cmd(client, message: Message):
     )
     await message.reply_text(help_text)
 
-@Client.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(client, message: Message, queue_manager):
     if message.from_user.id not in Config.AUTH_USERS:
         return
@@ -50,7 +47,6 @@ def get_settings_markup():
         [InlineKeyboardButton("High Compression (Small)", callback_data="set_high")]
     ])
 
-@Client.on_callback_query(filters.regex("^set_"))
 async def set_preset_cb(client, callback, queue_manager):
     preset = callback.data.split("_")[1]
     queue_manager.set_user_preset(callback.from_user.id, preset)
@@ -60,7 +56,6 @@ async def set_preset_cb(client, callback, queue_manager):
         reply_markup=get_settings_markup()
     )
 
-@Client.on_message(filters.command("stats") & filters.private)
 async def stats_cmd(client, message: Message):
     if message.from_user.id not in Config.AUTH_USERS:
         return
@@ -74,7 +69,6 @@ async def stats_cmd(client, message: Message):
         "📍 **Instance:** Render"
     )
 
-@Client.on_message(filters.command("queue") & filters.private)
 async def queue_cmd(client, message: Message, queue_manager):
     if message.from_user.id not in Config.AUTH_USERS:
         return

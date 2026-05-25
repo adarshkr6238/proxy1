@@ -32,12 +32,12 @@ async def start_health_server():
 
 class VideoBot(Client):
     def __init__(self):
+        logger.info("Initializing bot...")
         super().__init__(
             "video_compression_bot",
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
-            bot_token=Config.BOT_TOKEN,
-            plugins=dict(root="bot/handlers") 
+            bot_token=Config.BOT_TOKEN
         )
         self.queue_manager = QueueManager(self)
         self.queue_manager.process_task = self._process_task_bridge
