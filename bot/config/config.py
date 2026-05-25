@@ -17,11 +17,11 @@ class Config:
     DOWNLOAD_DIR = "/tmp/bot_downloads"
     TEMP_DIR = "/tmp/bot_temp"
     
-    # FFmpeg presets
+    # FFmpeg presets (Higher CRF = Smaller file)
     PRESETS = {
-        "low": {"crf": 24, "scale": -1, "desc": "Preserve resolution, low compression"},
-        "medium": {"crf": 28, "scale": 720, "desc": "720p target, balanced"},
-        "high": {"crf": 32, "scale": 480, "desc": "480p target, maximum compression"}
+        "low": {"crf": 28, "scale": -1, "desc": "Preserve resolution, high quality"},
+        "medium": {"crf": 32, "scale": 720, "desc": "720p target, balanced"},
+        "high": {"crf": 36, "scale": 480, "desc": "480p target, smallest size"}
     }
     
     DEFAULT_PRESET = "medium"

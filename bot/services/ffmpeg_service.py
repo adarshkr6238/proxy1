@@ -34,7 +34,7 @@ async def compress_video(input_path, output_path, preset_config, progress_callba
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
         '-threads', '2', # 2 threads is a good balance for 512MB RAM
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', str(crf),
+        '-c:v', 'libx264', '-preset', 'superfast', '-crf', str(crf),
         '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'
     ]
     
