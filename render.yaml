@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: telegram-video-compressor
+    runtime: docker
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: AUTH_USERS
+        sync: false
+      - key: PORT
+        value: 8080
