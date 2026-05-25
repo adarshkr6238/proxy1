@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import json
 import shutil
 from bot.config.config import Config
 
@@ -12,7 +13,28 @@ class QueueManager:
         self.queue = asyncio.Queue()
         self.current_task = None
         self.is_running = False
-        self.user_settings = {} # Simple in-memory settings (can be persistent later)
+        # Use a path that might persist across deploys if Render allows, 
+        # but /tmp is wiped on restart. 
+        # For true persistence on Render you need a Disk, but for now we use a local file.
+        self.settings_file = "user_settings.json" 
+        self.user_settings = self._load_settings()
+
+    def _load_settings(self):
+        if os.path.exists(self.settings_file):
+            try:
+                with open(self.settings_file, "r") as f:
+                    data = json.load(f)
+                    return {int(k): v for k, v in data.items()}
+            except Exception as e:
+                logger.error(f"Error loading settings: {e}")
+        return {}
+
+    def _save_settings(self):
+        try:
+            with open(self.settings_file, "w") as f:
+                json.dump(self.user_settings, f)
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
 
     async def add_task(self, task):
         if self.queue.qsize() >= Config.MAX_QUEUE_SIZE:
@@ -37,12 +59,9 @@ class QueueManager:
         self.is_running = False
 
     async def process_task(self, task):
-        # Implementation in handlers/media_handler logic
-        # This manager will be passed to handlers
         pass
 
     def cleanup_task(self, task):
-        # Basic cleanup
         paths = task.get('paths', [])
         for p in paths:
             if os.path.exists(p):
@@ -56,6 +75,7 @@ class QueueManager:
 
     def set_user_preset(self, user_id, preset):
         self.user_settings[user_id] = preset
+        self._save_settings()
 
     def get_queue_status(self):
         return self.queue.qsize()

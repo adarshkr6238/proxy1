@@ -74,6 +74,13 @@ async def _help(c, m): await help_cmd(c, m)
 @bot.on_message(filters.command("settings") & filters.private)
 async def _settings(c, m): await settings_cmd(c, m, bot.queue_manager)
 
+@bot.on_callback_query(filters.regex("^settings_main$"))
+async def _settings_cb(c, cb):
+    # Convert callback query to a pseudo-message to reuse settings_cmd logic
+    # or just call it directly with cb.message
+    await settings_cmd(c, cb.message, bot.queue_manager)
+    await cb.answer()
+
 @bot.on_callback_query(filters.regex("^set_"))
 async def _set_preset(c, cb): await set_preset_cb(c, cb, bot.queue_manager)
 
