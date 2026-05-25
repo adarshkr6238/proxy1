@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 async def handle_video(client, message, queue_manager):
     user_id = message.from_user.id
-    if user_id not in Config.AUTH_USERS:
-        return
 
     if not message.video and not message.document:
         return

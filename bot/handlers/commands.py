@@ -3,12 +3,10 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.config.config import Config
 
 async def start_cmd(client, message: Message):
-    if message.from_user.id not in Config.AUTH_USERS:
-        return
     await message.reply_text(
         "👋 **Welcome to Video Compression Bot!**\n\n"
         "Send me any video, and I'll compress it for you.\n"
-        "Optimized for Render Free Instance.\n\n"
+        "Optimized for High-Performance Hosting.\n\n"
         "Use /help to see compression modes.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⚙️ Settings", callback_data="settings_main")]
@@ -16,24 +14,20 @@ async def start_cmd(client, message: Message):
     )
 
 async def help_cmd(client, message: Message):
-    if message.from_user.id not in Config.AUTH_USERS:
-        return
     help_text = (
         "📖 **Help & Info**\n\n"
         "**Compression Modes:**\n"
-        "• `low`: Highest quality, largest size (CRF 24)\n"
-        "• `medium`: Balanced (CRF 28, 720p target)\n"
-        "• `high`: Smallest size, lower quality (CRF 32, 480p target)\n\n"
+        "• `low`: Highest quality, largest size\n"
+        "• `medium`: Balanced (720p/360p target)\n"
+        "• `high`: Smallest size, lower quality (480p/240p target)\n\n"
         "**Supported Formats:** MP4, MKV, MOV, WEBM\n"
-        "**Max Size:** No strict limit (MTProto supported), but Render storage is limited.\n"
-        "**Queue:** Sequential processing to save RAM.\n"
+        "**Max Size:** No strict limit (MTProto supported).\n"
+        "**Queue:** Sequential processing to maintain stability.\n"
         "**Cleanup:** Files deleted immediately after processing."
     )
     await message.reply_text(help_text)
 
 async def settings_cmd(client, message: Message, queue_manager):
-    if message.from_user.id not in Config.AUTH_USERS:
-        return
     current = queue_manager.get_user_preset(message.from_user.id)
     await message.reply_text(
         f"⚙️ **Settings**\n\nCurrent Preset: **{current}**",
@@ -42,9 +36,9 @@ async def settings_cmd(client, message: Message, queue_manager):
 
 def get_settings_markup():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Low Compression (Large)", callback_data="set_low")],
+        [InlineKeyboardButton("Low Compression", callback_data="set_low")],
         [InlineKeyboardButton("Medium Compression (Default)", callback_data="set_medium")],
-        [InlineKeyboardButton("High Compression (Small)", callback_data="set_high")]
+        [InlineKeyboardButton("High Compression", callback_data="set_high")]
     ])
 
 async def set_preset_cb(client, callback, queue_manager):
@@ -57,8 +51,6 @@ async def set_preset_cb(client, callback, queue_manager):
     )
 
 async def stats_cmd(client, message: Message):
-    if message.from_user.id not in Config.AUTH_USERS:
-        return
     # Simple stats, can be expanded
     import shutil
     total, used, free = shutil.disk_usage("/")
@@ -66,12 +58,10 @@ async def stats_cmd(client, message: Message):
         "📊 **System Stats**\n\n"
         f"💾 **Storage:** {used // (2**20)}MB used / {total // (2**20)}MB total\n"
         "🚀 **Mode:** Async MTProto\n"
-        "📍 **Instance:** Render"
+        "📍 **Instance:** Hugging Face"
     )
 
 async def queue_cmd(client, message: Message, queue_manager):
-    if message.from_user.id not in Config.AUTH_USERS:
-        return
     count = queue_manager.get_queue_status()
     current = queue_manager.get_current_task_info()
     
