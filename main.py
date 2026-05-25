@@ -9,6 +9,7 @@ from bot.services.queue_manager import QueueManager
 from bot.services.storage_service import setup_storage, cleanup_old_files
 from bot.handlers.commands import start_cmd, help_cmd, settings_cmd, set_preset_cb, stats_cmd, queue_cmd
 from bot.handlers.media_handler import handle_video, download_stage, compression_stage
+from bot.utils.progress import cancel_task
 
 # Configure logging
 logging.basicConfig(
@@ -85,6 +86,13 @@ async def _settings_cb(c, cb):
 
 @bot.on_callback_query(filters.regex("^set_"))
 async def _set_preset(c, cb): await set_preset_cb(c, cb, bot.queue_manager)
+
+@bot.on_callback_query(filters.regex("^cancel_"))
+async def _cancel_cb(c, cb):
+    msg_id = int(cb.data.split("_")[1])
+    cancel_task(msg_id)
+    await cb.answer("Cancelling task...", show_alert=True)
+    await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
 
 @bot.on_message(filters.command("stats") & filters.private)
 async def _stats(c, m): await stats_cmd(c, m)

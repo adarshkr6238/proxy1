@@ -2,9 +2,25 @@ import time
 import math
 
 _last_string = {}
+_cancelled_tasks = set()
+
+def cancel_task(msg_id):
+    _cancelled_tasks.add(msg_id)
+
+def is_cancelled(msg_id):
+    return msg_id in _cancelled_tasks
+
+def clear_cancel_flag(msg_id):
+    if msg_id in _cancelled_tasks:
+        _cancelled_tasks.remove(msg_id)
 
 async def progress_bar(current, total, status_text, message, start_time, last_update_time):
     global _last_string
+    msg_id = message.id
+
+    if is_cancelled(msg_id):
+        raise Exception("CANCELLED")
+
     now = time.time()
     if now - last_update_time < 3 and current != total:
         return last_update_time
@@ -28,15 +44,17 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
         f"⏱️ Elapsed: {elapsed_time}"
     )
 
-    # Avoid MESSAGE_NOT_MODIFIED
-    msg_id = message.id
     if _last_string.get(msg_id) == progress_str and current != total:
         return now
     
     _last_string[msg_id] = progress_str
 
     try:
-        await message.edit_text(progress_str)
+        from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        await message.edit_text(
+            progress_str,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{msg_id}")]])
+        )
     except Exception:
         pass
     
