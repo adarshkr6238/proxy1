@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import os
+import signal
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from bot.config.config import Config
@@ -64,7 +65,7 @@ class VideoBot(Client):
 
 bot = VideoBot()
 
-# Manual Registration to pass queue_manager
+# Manual Registration
 @bot.on_message(filters.command("start") & filters.private)
 async def _start(c, m): await start_cmd(c, m)
 
@@ -76,8 +77,6 @@ async def _settings(c, m): await settings_cmd(c, m, bot.queue_manager)
 
 @bot.on_callback_query(filters.regex("^settings_main$"))
 async def _settings_cb(c, cb):
-    # Convert callback query to a pseudo-message to reuse settings_cmd logic
-    # or just call it directly with cb.message
     await settings_cmd(c, cb.message, bot.queue_manager)
     await cb.answer()
 
@@ -93,5 +92,19 @@ async def _queue(c, m): await queue_cmd(c, m, bot.queue_manager)
 @bot.on_message((filters.video | filters.document) & filters.private)
 async def _media(c, m): await handle_video(c, m, bot.queue_manager)
 
+async def main():
+    await bot.start()
+    await idle()
+    await bot.stop()
+
 if __name__ == "__main__":
-    bot.run()
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+    finally:
+        if not loop.is_closed():
+            loop.close()

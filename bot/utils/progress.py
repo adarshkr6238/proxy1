@@ -1,7 +1,10 @@
 import time
 import math
 
+_last_string = {}
+
 async def progress_bar(current, total, status_text, message, start_time, last_update_time):
+    global _last_string
     now = time.time()
     if now - last_update_time < 3 and current != total:
         return last_update_time
@@ -25,11 +28,21 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
         f"⏱️ Elapsed: {elapsed_time}"
     )
 
+    # Avoid MESSAGE_NOT_MODIFIED
+    msg_id = message.id
+    if _last_string.get(msg_id) == progress_str and current != total:
+        return now
+    
+    _last_string[msg_id] = progress_str
+
     try:
         await message.edit_text(progress_str)
     except Exception:
         pass
     
+    if current == total and msg_id in _last_string:
+        del _last_string[msg_id]
+        
     return now
 
 def format_bytes(size):
