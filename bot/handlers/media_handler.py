@@ -103,18 +103,29 @@ async def process_video_task(client, task, queue_manager):
     try:
         orig_size = os.path.getsize(input_path)
         comp_size = os.path.getsize(output_path)
-        saved = (orig_size - comp_size) / orig_size * 100
         
+        # FAILSAFE: If compressed is larger, use original
+        if comp_size >= orig_size:
+            await status_msg.edit_text("⚠️ Compressed file was larger than original. Sending original instead.")
+            upload_path = input_path
+            final_size = orig_size
+            saved_str = "0% (Already optimized)"
+        else:
+            upload_path = output_path
+            final_size = comp_size
+            saved = (orig_size - comp_size) / orig_size * 100
+            saved_str = f"{saved:.1f}%"
+
         caption = (
-            f"✅ **Compression Complete**\n\n"
+            f"✅ **Processing Complete**\n\n"
             f"📦 **Original:** {format_bytes(orig_size)}\n"
-            f"📉 **Compressed:** {format_bytes(comp_size)}\n"
-            f"✨ **Saved:** {saved:.1f}%\n"
+            f"📉 **Final:** {format_bytes(final_size)}\n"
+            f"✨ **Saved:** {saved_str}\n"
             f"🛠️ **Preset:** {preset_name}"
         )
 
         await message.reply_video(
-            video=output_path,
+            video=upload_path,
             caption=caption,
             quote=True,
             progress=up_progress

@@ -18,10 +18,11 @@ class Config:
     TEMP_DIR = "/tmp/bot_temp"
     
     # FFmpeg presets (Higher CRF = Smaller file)
+    # Aggressive values to ensure reduction
     PRESETS = {
-        "low": {"crf": 28, "scale": -1, "desc": "Preserve resolution, high quality"},
-        "medium": {"crf": 32, "scale": 720, "desc": "720p target, balanced"},
-        "high": {"crf": 36, "scale": 480, "desc": "480p target, smallest size"}
+        "low": {"crf": 30, "scale": -1, "desc": "Light compression"},
+        "medium": {"crf": 34, "scale": 720, "desc": "Balanced compression"},
+        "high": {"crf": 40, "scale": 480, "desc": "Maximum compression (Tiny file)"}
     }
     
     DEFAULT_PRESET = "medium"
