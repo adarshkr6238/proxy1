@@ -3,8 +3,12 @@ import os
 import subprocess
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# Compile Regex globally for performance
+TIME_REGEX = re.compile(r"time=(\d+:\d+:\d+\.\d+)")
 
 async def get_video_info(file_path):
     cmd = [
@@ -19,8 +23,7 @@ async def get_video_info(file_path):
         return None
     return json.loads(stdout)
 
-async def compress_video(input_path, output_path, preset_name, progress_callback, queue_manager):
-    # Get video info
+async def compress_video(input_path, output_path, preset_name, progress_callback, task):
     info = await get_video_info(input_path)
     if not info:
         return False, "Could not get video info with ffprobe."
@@ -33,7 +36,6 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     width = int(video_stream.get('width', 0))
     height = int(video_stream.get('height', 0))
     
-    # Parse framerate
     fps_str = video_stream.get('avg_frame_rate', '0/1')
     try:
         num, den = map(int, fps_str.split('/'))
@@ -41,7 +43,6 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     except:
         fps = 0
 
-    # Logic for target bitrate and resolution
     target_height = -2 
     v_bitrate = "500k"
     a_bitrate = "64k"
@@ -53,35 +54,30 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
         elif preset_name == "medium":
             target_height = 240
             v_bitrate = "200k"
-        else: # high
+        else:
             target_height = 144
             v_bitrate = "100k"
     else: # <= 15 minutes
         if preset_name == "low":
-            if height > 720:
-                target_height = 400
-            elif height >= 480:
-                target_height = 360
+            if height > 720: target_height = 400
+            elif height >= 480: target_height = 360
             v_bitrate = "500k"
         elif preset_name == "medium":
             target_height = 360
             v_bitrate = "350k"
-        else: # high
+        else:
             target_height = 240
             v_bitrate = "200k"
 
-    # Base command optimized for Hugging Face
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
         '-threads', '0', 
         '-c:v', 'libx264', '-preset', 'superfast'
     ]
 
-    # Apply FPS cap if necessary
     if fps > 24:
         cmd.extend(['-r', '24'])
 
-    # Add bitrate and other flags
     cmd.extend([
         '-b:v', v_bitrate,
         '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
@@ -96,12 +92,11 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
         *cmd, stderr=asyncio.subprocess.PIPE
     )
     
-    # Store process in queue_manager for pausing
-    queue_manager.current_process = process
+    # Store process in task for pause/resume/kill support
+    task['process'] = process
     
     last_error_lines = []
     
-    # FFmpeg writes progress to stderr
     while True:
         try:
             chunk = await process.stderr.read(1024)
@@ -109,35 +104,29 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 break
                 
             line = chunk.decode('utf-8', errors='ignore')
+            
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
 
             if "time=" in line:
-                try:
-                    import re
-                    match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
-                    if match:
-                        time_str = match.group(1)
-                        h, m, s = time_str.split(":")
-                        current_time = int(h)*3600 + int(m)*60 + float(s)
-                        if duration > 0:
-                            await progress_callback(current_time, duration)
-                except Exception:
-                    pass
+                match = TIME_REGEX.search(line)
+                if match:
+                    h, m, s = match.group(1).split(":")
+                    current_time = int(h)*3600 + int(m)*60 + float(s)
+                    if duration > 0:
+                        await progress_callback(current_time, duration)
         except Exception as e:
             if str(e) == "CANCELLED":
-                # Ensure process is killed on cancellation
                 try:
                     process.kill()
-                except:
-                    pass
+                except: pass
                 raise e
             logger.error(f"Error reading ffmpeg output: {e}")
             break
                 
     await process.wait()
-    queue_manager.current_process = None
+    task['process'] = None
     
     if process.returncode != 0:
         error_msg = "".join(last_error_lines).strip()

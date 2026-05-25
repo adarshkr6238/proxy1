@@ -21,16 +21,10 @@ async def handle_video(client, message, queue_manager):
             return
 
     setup_storage()
-    status_msg = await message.reply_text(
-        "⏳ Analyzing and adding to queue...", 
-        quote=True
-    )
+    status_msg = await message.reply_text("⏳ Analyzing and adding to queue...", quote=True)
     
-    # Get duration for priority logic
     duration = message.video.duration if message.video else 0
     if not duration and message.document:
-        # We need a quick probe if it's a document
-        # But for speed, let's assume it's normal if not specified
         duration = 0 
 
     task = {
@@ -39,7 +33,9 @@ async def handle_video(client, message, queue_manager):
         'user_id': user_id,
         'paths': [],
         'input_path': None,
-        'duration': duration
+        'duration': duration,
+        'is_paused': False,
+        'process': None
     }
     
     await status_msg.edit_text(
@@ -52,7 +48,6 @@ async def handle_video(client, message, queue_manager):
         await status_msg.edit_text(f"❌ {pos}")
         return
 
-    # Trigger priority check
     await queue_manager.check_and_pause_for_priority(duration)
 
     await status_msg.edit_text(
@@ -90,7 +85,6 @@ async def download_stage(client, task):
         setup_storage()
         await message.download(file_name=input_path, progress=down_progress)
         
-        # After download, get exact duration if we didn't have it
         if not task['duration']:
             info = await get_video_info(input_path)
             if info:
@@ -133,15 +127,12 @@ async def compression_stage(client, task, queue_manager):
 
     async def comp_progress(current, total):
         nonlocal last_update
-        # While compression is running, check if we were paused
-        if queue_manager.is_paused and queue_manager.current_task == task:
-            # We don't update progress while paused, but we stay in this loop
+        if task.get('is_paused'):
             return last_update
-            
         last_update = await progress_bar(current, total, f"Compressing ({preset_name})", status_msg, start_time, last_update)
 
     try:
-        success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress, queue_manager)
+        success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress, task)
         
         if is_cancelled(msg_id):
              raise Exception("CANCELLED")
@@ -150,7 +141,6 @@ async def compression_stage(client, task, queue_manager):
             await status_msg.edit_text(f"❌ Compression failed:\n\n`{error_msg}`")
             return
 
-        # 3. Upload
         await status_msg.edit_text(
             "📤 Uploading...",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{msg_id}")]])
@@ -193,9 +183,6 @@ async def compression_stage(client, task, queue_manager):
         await status_msg.delete()
         clear_cancel_flag(msg_id)
         
-        # Resume any paused tasks after this one is done
-        queue_manager.resume_if_paused()
-        
         import gc
         gc.collect() 
     except Exception as e:
@@ -204,4 +191,3 @@ async def compression_stage(client, task, queue_manager):
         else:
             await status_msg.edit_text(f"❌ Error: {e}")
         clear_cancel_flag(msg_id)
-        queue_manager.resume_if_paused()

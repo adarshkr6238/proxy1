@@ -1,5 +1,4 @@
 import time
-import math
 
 _last_string = {}
 _cancelled_tasks = set()
@@ -11,37 +10,33 @@ def is_cancelled(msg_id):
     return msg_id in _cancelled_tasks
 
 def clear_cancel_flag(msg_id):
-    if msg_id in _cancelled_tasks:
-        _cancelled_tasks.remove(msg_id)
+    _cancelled_tasks.discard(msg_id)
 
 async def progress_bar(current, total, status_text, message, start_time, last_update_time):
     global _last_string
     msg_id = message.id
 
-    if is_cancelled(msg_id):
+    if msg_id in _cancelled_tasks:
         raise Exception("CANCELLED")
 
     now = time.time()
     if now - last_update_time < 3 and current != total:
         return last_update_time
 
-    percentage = current * 100 / total
-    speed = current / (now - start_time) if (now - start_time) > 0 else 0
+    percentage = current * 100 / total if total else 0
+    elapsed = now - start_time
+    speed = current / elapsed if elapsed > 0 else 0
     eta = (total - current) / speed if speed > 0 else 0
-    
-    elapsed_time = format_time(now - start_time)
-    eta_time = format_time(eta)
 
-    bar_length = 10
-    filled_length = int(round(bar_length * current / float(total)))
-    bar = '█' * filled_length + '░' * (bar_length - filled_length)
+    filled_length = int(10 * current // total) if total else 0
+    bar = '█' * filled_length + '░' * (10 - filled_length)
 
     progress_str = (
         f"**{status_text}**\n"
         f"[{bar}] {percentage:.1f}%\n"
         f"🚀 Speed: {format_bytes(speed)}/s\n"
-        f"⏳ ETA: {eta_time}\n"
-        f"⏱️ Elapsed: {elapsed_time}"
+        f"⏳ ETA: {format_time(eta)}\n"
+        f"⏱️ Elapsed: {format_time(elapsed)}"
     )
 
     if _last_string.get(msg_id) == progress_str and current != total:
@@ -58,8 +53,8 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
     except Exception:
         pass
     
-    if current == total and msg_id in _last_string:
-        del _last_string[msg_id]
+    if current == total:
+        _last_string.pop(msg_id, None)
         
     return now
 

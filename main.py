@@ -2,6 +2,7 @@ import logging
 import asyncio
 import os
 import signal
+import uvloop # High performance event loop
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from bot.config.config import Config
@@ -109,6 +110,7 @@ async def main():
     await bot.stop()
 
 if __name__ == "__main__":
+    uvloop.install() # Optimize Async I/O
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(main())

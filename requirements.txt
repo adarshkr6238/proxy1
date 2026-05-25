@@ -2,3 +2,4 @@ pyrogram
 tgcrypto
 aiohttp
 python-dotenv
+uvloop
