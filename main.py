@@ -68,56 +68,41 @@ class VideoBot(Client):
             gc.collect() 
             await asyncio.sleep(600) 
 
-bot = VideoBot()
+async def main():
+    bot = VideoBot()
 
-# Manual Registration
-@bot.on_message(filters.command("start") & filters.private)
-async def _start(c, m): await start_cmd(c, m)
+    # Registration (Must happen inside the loop for some handlers)
+    bot.on_message(filters.command("start") & filters.private)(start_cmd)
+    bot.on_message(filters.command("help") & filters.private)(help_cmd)
+    bot.on_message(filters.command("settings") & filters.private)(lambda c, m: settings_cmd(c, m, bot.queue_manager))
+    bot.on_callback_query(filters.regex("^settings_main$"))(lambda c, cb: _settings_cb_bridge(c, cb, bot.queue_manager))
+    bot.on_callback_query(filters.regex("^set_"))(lambda c, cb: set_preset_cb(c, cb, bot.queue_manager))
+    bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_bridge)
+    bot.on_message(filters.command("stats") & filters.private)(stats_cmd)
+    bot.on_message(filters.command("queue") & filters.private)(lambda c, m: queue_cmd(c, m, bot.queue_manager))
+    bot.on_message((filters.video | filters.document) & filters.private)(lambda c, m: handle_video(c, m, bot.queue_manager))
 
-@bot.on_message(filters.command("help") & filters.private)
-async def _help(c, m): await help_cmd(c, m)
+    await bot.start()
+    await idle()
+    await bot.stop()
 
-@bot.on_message(filters.command("settings") & filters.private)
-async def _settings(c, m): await settings_cmd(c, m, bot.queue_manager)
-
-@bot.on_callback_query(filters.regex("^settings_main$"))
-async def _settings_cb(c, cb):
-    await settings_cmd(c, cb.message, bot.queue_manager)
+# Bridges for lambda compatibility
+async def _settings_cb_bridge(c, cb, qm):
+    from bot.handlers.commands import settings_cmd
+    await settings_cmd(c, cb.message, qm)
     await cb.answer()
 
-@bot.on_callback_query(filters.regex("^set_"))
-async def _set_preset(c, cb): await set_preset_cb(c, cb, bot.queue_manager)
-
-@bot.on_callback_query(filters.regex("^cancel_"))
-async def _cancel_cb(c, cb):
+async def _cancel_cb_bridge(c, cb):
     msg_id = int(cb.data.split("_")[1])
     cancel_task(msg_id)
     await cb.answer("Cancelling task...", show_alert=True)
     await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
 
-@bot.on_message(filters.command("stats") & filters.private)
-async def _stats(c, m): await stats_cmd(c, m)
-
-@bot.on_message(filters.command("queue") & filters.private)
-async def _queue(c, m): await queue_cmd(c, m, bot.queue_manager)
-
-@bot.on_message((filters.video | filters.document) & filters.private)
-async def _media(c, m): await handle_video(c, m, bot.queue_manager)
-
-async def main():
-    await bot.start()
-    await idle()
-    await bot.stop()
-
 if __name__ == "__main__":
-    uvloop.install() # Optimize Async I/O
-    loop = asyncio.get_event_loop()
+    uvloop.install()
     try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
     except Exception as e:
         logger.error(f"Fatal error: {e}")
-    finally:
-        if not loop.is_closed():
-            loop.close()
