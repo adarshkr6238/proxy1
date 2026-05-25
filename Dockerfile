@@ -8,16 +8,24 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Hugging Face Spaces recommended non-root user
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH="/home/user/.local/bin:$PATH"
+
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --chown=user requirements.txt .
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Remove build dependencies to keep image small
+USER root
 RUN apt-get purge -y --auto-remove gcc python3-dev libssl-dev
+USER user
 
-COPY . .
+COPY --chown=user . .
 
-# Ensure tmp directories exist
+# Ensure tmp directories exist and are writable
 RUN mkdir -p /tmp/bot_downloads /tmp/bot_temp
 
 CMD ["python", "main.py"]

@@ -1,5 +1,4 @@
 pyrogram
 tgcrypto
-python-dotenv
-asyncio
 aiohttp
+python-dotenv
