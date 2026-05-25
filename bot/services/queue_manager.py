@@ -10,13 +10,13 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     def __init__(self, bot):
         self.bot = bot
-        # Using PriorityQueue: tuple (priority_score, count, task)
         self.download_queue = asyncio.PriorityQueue()
         self.compression_queue = asyncio.PriorityQueue()
-        self.task_counter = 0 # Tie-breaker for PriorityQueue
+        self.task_counter = 0
         
         self.active_compression_task = None
         self.paused_compression_tasks = []
+        self.active_download_count = 0
         
         self.settings_file = "user_settings.json" 
         self.user_settings = self._load_settings()
@@ -43,27 +43,37 @@ class QueueManager:
             logger.error(f"Error saving settings: {e}")
 
     async def add_task(self, task):
-        if self.download_queue.qsize() + self.compression_queue.qsize() >= Config.MAX_QUEUE_SIZE:
+        if self.get_queue_status() >= Config.MAX_QUEUE_SIZE:
             return False, "Queue is full"
         
-        # Priority mapping: Short videos (<5m) get Priority 1, others Priority 2
         duration = task.get('duration', 0)
         priority = 1 if (0 < duration <= 300) else 2
         
         self.task_counter += 1
         await self.download_queue.put((priority, self.task_counter, task))
-        return True, self.download_queue.qsize() + self.compression_queue.qsize()
+        return True, self.get_position(task)
+
+    def get_position(self, task):
+        # Rough estimate of position
+        return self.download_queue.qsize() + self.compression_queue.qsize() + 1
 
     async def download_worker(self):
+        sem = asyncio.Semaphore(2) # Limit to 2 concurrent downloads
         while True:
             priority, count, task = await self.download_queue.get()
+            asyncio.create_task(self._run_download_task(task, priority, count, sem))
+
+    async def _run_download_task(self, task, priority, count, sem):
+        async with sem:
+            self.active_download_count += 1
             try:
                 await self.process_download(task)
                 await self.compression_queue.put((priority, count, task))
             except Exception as e:
-                logger.error(f"Error in download worker: {e}")
+                logger.error(f"Download task failed: {e}")
                 self.cleanup_task(task)
             finally:
+                self.active_download_count -= 1
                 self.download_queue.task_done()
 
     async def compression_worker(self):
@@ -75,14 +85,13 @@ class QueueManager:
                 await asyncio.sleep(1)
             
             self.active_compression_task = task
-            # Run compression concurrently so worker can fetch next if preempted
-            asyncio.create_task(self._run_compression(task))
+            asyncio.create_task(self._run_compression_task(task))
 
-    async def _run_compression(self, task):
+    async def _run_compression_task(self, task):
         try:
             await self.process_compression(task)
         except Exception as e:
-            logger.error(f"Error in compression execution: {e}")
+            logger.error(f"Compression task failed: {e}")
         finally:
             self.compression_queue.task_done()
             self.cleanup_task(task)
@@ -99,24 +108,17 @@ class QueueManager:
             return
             
         curr_duration = self.active_compression_task.get('duration', 0)
-        
-        # Preempt if current task is >15min and new task is <=5min
         if curr_duration > 900 and 0 < new_task_duration <= 300:
             if not self.active_compression_task.get('is_paused', False):
                 process = self.active_compression_task.get('process')
                 if process:
                     try:
-                        logger.info(f"Pausing long task ({curr_duration}s) for short task ({new_task_duration}s)")
                         os.kill(process.pid, signal.SIGSTOP)
                         self.active_compression_task['is_paused'] = True
                         self.paused_compression_tasks.append(self.active_compression_task)
-                        
                         await self.active_compression_task['status_msg'].edit_text("⏸ **Paused:** Processing a shorter priority video first...")
-                        
-                        # Free the active slot so worker can immediately pick up the short video
                         self.active_compression_task = None 
-                    except Exception as e:
-                        logger.error(f"Failed to pause process: {e}")
+                    except Exception: pass
 
     def resume_if_paused(self):
         if not self.active_compression_task and self.paused_compression_tasks:
@@ -126,25 +128,17 @@ class QueueManager:
             process = paused_task.get('process')
             if process:
                 try:
-                    logger.info("Resuming paused long task...")
                     os.kill(process.pid, signal.SIGCONT)
-                except Exception as e:
-                    logger.error(f"Failed to resume process: {e}")
+                except Exception: pass
 
-    async def process_download(self, task):
-        pass
-
-    async def process_compression(self, task):
-        pass
+    async def process_download(self, task): pass
+    async def process_compression(self, task): pass
 
     def cleanup_task(self, task):
-        paths = task.get('paths', [])
-        for p in paths:
+        for p in task.get('paths', []):
             if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except:
-                    pass
+                try: os.remove(p)
+                except: pass
 
     def get_user_preset(self, user_id):
         return self.user_settings.get(user_id, Config.DEFAULT_PRESET)
@@ -154,7 +148,7 @@ class QueueManager:
         self._save_settings()
 
     def get_queue_status(self):
-        return self.download_queue.qsize() + self.compression_queue.qsize()
+        return self.download_queue.qsize() + self.compression_queue.qsize() + self.active_download_count + (1 if self.active_compression_task else 0)
 
     def get_current_task_info(self):
         if self.active_compression_task:
