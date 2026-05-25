@@ -71,32 +71,43 @@ class VideoBot(Client):
 async def main():
     bot = VideoBot()
 
-    # Registration (Must happen inside the loop for some handlers)
+    # Define proper async wrappers for handlers that need queue_manager
+    async def _settings_wrapper(c, m):
+        await settings_cmd(c, m, bot.queue_manager)
+
+    async def _settings_cb_wrapper(c, cb):
+        await settings_cmd(c, cb.message, bot.queue_manager)
+        await cb.answer()
+
+    async def _set_preset_wrapper(c, cb):
+        await set_preset_cb(c, cb, bot.queue_manager)
+
+    async def _queue_wrapper(c, m):
+        await queue_cmd(c, m, bot.queue_manager)
+
+    async def _media_wrapper(c, m):
+        await handle_video(c, m, bot.queue_manager)
+
+    async def _cancel_cb_wrapper(c, cb):
+        msg_id = int(cb.data.split("_")[1])
+        cancel_task(msg_id)
+        await cb.answer("Cancelling task...", show_alert=True)
+        await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
+
+    # Manual Registration with async wrappers
     bot.on_message(filters.command("start") & filters.private)(start_cmd)
     bot.on_message(filters.command("help") & filters.private)(help_cmd)
-    bot.on_message(filters.command("settings") & filters.private)(lambda c, m: settings_cmd(c, m, bot.queue_manager))
-    bot.on_callback_query(filters.regex("^settings_main$"))(lambda c, cb: _settings_cb_bridge(c, cb, bot.queue_manager))
-    bot.on_callback_query(filters.regex("^set_"))(lambda c, cb: set_preset_cb(c, cb, bot.queue_manager))
-    bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_bridge)
+    bot.on_message(filters.command("settings") & filters.private)(_settings_wrapper)
+    bot.on_callback_query(filters.regex("^settings_main$"))(_settings_cb_wrapper)
+    bot.on_callback_query(filters.regex("^set_"))(_set_preset_wrapper)
+    bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_wrapper)
     bot.on_message(filters.command("stats") & filters.private)(stats_cmd)
-    bot.on_message(filters.command("queue") & filters.private)(lambda c, m: queue_cmd(c, m, bot.queue_manager))
-    bot.on_message((filters.video | filters.document) & filters.private)(lambda c, m: handle_video(c, m, bot.queue_manager))
+    bot.on_message(filters.command("queue") & filters.private)(_queue_wrapper)
+    bot.on_message((filters.video | filters.document) & filters.private)(_media_wrapper)
 
     await bot.start()
     await idle()
     await bot.stop()
-
-# Bridges for lambda compatibility
-async def _settings_cb_bridge(c, cb, qm):
-    from bot.handlers.commands import settings_cmd
-    await settings_cmd(c, cb.message, qm)
-    await cb.answer()
-
-async def _cancel_cb_bridge(c, cb):
-    msg_id = int(cb.data.split("_")[1])
-    cancel_task(msg_id)
-    await cb.answer("Cancelling task...", show_alert=True)
-    await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
 
 if __name__ == "__main__":
     uvloop.install()
