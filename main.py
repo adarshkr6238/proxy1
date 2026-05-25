@@ -58,8 +58,8 @@ class VideoBot(Client):
         while True:
             import gc
             cleanup_old_files()
-            gc.collect() # Force garbage collection
-            await asyncio.sleep(600) # Every 10 minutes
+            gc.collect() 
+            await asyncio.sleep(600) 
 
 bot = VideoBot()
 
@@ -85,15 +85,5 @@ async def _queue(c, m): await queue_cmd(c, m, bot.queue_manager)
 @bot.on_message((filters.video | filters.document) & filters.private)
 async def _media(c, m): await handle_video(c, m, bot.queue_manager)
 
-async def main():
-    await bot.start()
-    await idle()
-    await bot.stop()
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
+    bot.run()
