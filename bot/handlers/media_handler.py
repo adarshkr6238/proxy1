@@ -5,7 +5,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.config.config import Config
 from bot.utils.progress import progress_bar, format_bytes, is_cancelled, clear_cancel_flag
-from bot.services.ffmpeg_service import compress_video
+from bot.services.ffmpeg_service import compress_video, get_video_info
 from bot.services.storage_service import setup_storage
 
 logger = logging.getLogger(__name__)
@@ -21,23 +21,27 @@ async def handle_video(client, message, queue_manager):
             return
 
     setup_storage()
-    # Initial status message with cancel button
     status_msg = await message.reply_text(
-        "⏳ Adding to queue...", 
-        quote=True,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_init")]])
+        "⏳ Analyzing and adding to queue...", 
+        quote=True
     )
-    # Note: cancel_init will be handled differently or replaced once msg id is known
     
+    # Get duration for priority logic
+    duration = message.video.duration if message.video else 0
+    if not duration and message.document:
+        # We need a quick probe if it's a document
+        # But for speed, let's assume it's normal if not specified
+        duration = 0 
+
     task = {
         'message': message,
         'status_msg': status_msg,
         'user_id': user_id,
         'paths': [],
-        'input_path': None
+        'input_path': None,
+        'duration': duration
     }
     
-    # Re-edit with correct msg id for callback
     await status_msg.edit_text(
         "⏳ Adding to queue...",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
@@ -48,8 +52,11 @@ async def handle_video(client, message, queue_manager):
         await status_msg.edit_text(f"❌ {pos}")
         return
 
+    # Trigger priority check
+    await queue_manager.check_and_pause_for_priority(duration)
+
     await status_msg.edit_text(
-        f"📝 Added to queue (Position: {pos})\n\nVideos in queue are pre-downloaded to save time!",
+        f"📝 Added to queue (Position: {pos})\n\nShort videos (<= 5 min) get priority!",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
     )
 
@@ -63,7 +70,7 @@ async def download_stage(client, task):
         return
 
     await status_msg.edit_text(
-        "📥 Pre-downloading in background...",
+        "📥 Downloading...",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{msg_id}")]])
     )
     start_time = time.time()
@@ -82,10 +89,17 @@ async def download_stage(client, task):
     try:
         setup_storage()
         await message.download(file_name=input_path, progress=down_progress)
+        
+        # After download, get exact duration if we didn't have it
+        if not task['duration']:
+            info = await get_video_info(input_path)
+            if info:
+                task['duration'] = float(info.get('format', {}).get('duration', 0))
+
         if is_cancelled(msg_id):
             raise Exception("CANCELLED")
         await status_msg.edit_text(
-            "✅ Downloaded! Waiting for compression slot...",
+            "✅ Ready for compression...",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{msg_id}")]])
         )
     except Exception as e:
@@ -106,7 +120,6 @@ async def compression_stage(client, task, queue_manager):
         await status_msg.edit_text("❌ Task Cancelled.")
         return
 
-    # 2. Compress
     preset_name = queue_manager.get_user_preset(user_id)
     output_path = os.path.join(Config.TEMP_DIR, f"compressed_{message.id}.mp4")
     task['paths'].append(output_path)
@@ -120,11 +133,15 @@ async def compression_stage(client, task, queue_manager):
 
     async def comp_progress(current, total):
         nonlocal last_update
+        # While compression is running, check if we were paused
+        if queue_manager.is_paused and queue_manager.current_task == task:
+            # We don't update progress while paused, but we stay in this loop
+            return last_update
+            
         last_update = await progress_bar(current, total, f"Compressing ({preset_name})", status_msg, start_time, last_update)
 
     try:
-        # Check cancel inside compression loop happens via callback
-        success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress)
+        success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress, queue_manager)
         
         if is_cancelled(msg_id):
              raise Exception("CANCELLED")
@@ -175,6 +192,10 @@ async def compression_stage(client, task, queue_manager):
         )
         await status_msg.delete()
         clear_cancel_flag(msg_id)
+        
+        # Resume any paused tasks after this one is done
+        queue_manager.resume_if_paused()
+        
         import gc
         gc.collect() 
     except Exception as e:
@@ -183,3 +204,4 @@ async def compression_stage(client, task, queue_manager):
         else:
             await status_msg.edit_text(f"❌ Error: {e}")
         clear_cancel_flag(msg_id)
+        queue_manager.resume_if_paused()

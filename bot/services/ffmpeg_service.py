@@ -19,7 +19,7 @@ async def get_video_info(file_path):
         return None
     return json.loads(stdout)
 
-async def compress_video(input_path, output_path, preset_name, progress_callback):
+async def compress_video(input_path, output_path, preset_name, progress_callback, queue_manager):
     # Get video info
     info = await get_video_info(input_path)
     if not info:
@@ -41,7 +41,7 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     except:
         fps = 0
 
-    # Logic for target bitrate and resolution (Slightly reduced per request)
+    # Logic for target bitrate and resolution
     target_height = -2 
     v_bitrate = "500k"
     a_bitrate = "64k"
@@ -96,6 +96,9 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
         *cmd, stderr=asyncio.subprocess.PIPE
     )
     
+    # Store process in queue_manager for pausing
+    queue_manager.current_process = process
+    
     last_error_lines = []
     
     # FFmpeg writes progress to stderr
@@ -106,8 +109,6 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 break
                 
             line = chunk.decode('utf-8', errors='ignore')
-            
-            # Keep track of last few lines for error reporting (20 lines)
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
@@ -125,10 +126,19 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 except Exception:
                     pass
         except Exception as e:
+            if str(e) == "CANCELLED":
+                # Ensure process is killed on cancellation
+                try:
+                    process.kill()
+                except:
+                    pass
+                raise e
             logger.error(f"Error reading ffmpeg output: {e}")
             break
                 
     await process.wait()
+    queue_manager.current_process = None
+    
     if process.returncode != 0:
         error_msg = "".join(last_error_lines).strip()
         return False, error_msg or f"FFmpeg exited with code {process.returncode}"
