@@ -84,4 +84,11 @@ async def _queue(c, m): await queue_cmd(c, m, bot.queue_manager)
 async def _media(c, m): await handle_video(c, m, bot.queue_manager)
 
 if __name__ == "__main__":
-    bot.run()
+    bot.start()
+    try:
+        from pyrogram import idle
+        idle()
+    except Exception as e:
+        logger.error(f"Error in main idle: {e}")
+    finally:
+        bot.stop()

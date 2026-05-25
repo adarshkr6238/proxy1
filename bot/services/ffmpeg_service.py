@@ -48,22 +48,31 @@ async def compress_video(input_path, output_path, preset_config, progress_callba
     
     # FFmpeg writes progress to stderr
     while True:
-        line = await process.stderr.readline()
-        if not line:
+        # Read until \r or \n as FFmpeg uses \r for progress updates
+        try:
+            # We read chunk by chunk to avoid limit issues
+            chunk = await process.stderr.read(1024)
+            if not chunk:
+                break
+                
+            line = chunk.decode('utf-8', errors='ignore')
+            if "time=" in line:
+                # Simple duration-based progress
+                try:
+                    # Look for time=00:00:00.00 pattern
+                    import re
+                    match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+                    if match:
+                        time_str = match.group(1)
+                        h, m, s = time_str.split(":")
+                        current_time = int(h)*3600 + int(m)*60 + float(s)
+                        if duration > 0:
+                            await progress_callback(current_time, duration)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Error reading ffmpeg output: {e}")
             break
-            
-        line = line.decode('utf-8')
-        if "time=" in line:
-            # Simple duration-based progress
-            try:
-                # Extract time=00:00:00.00
-                time_str = line.split("time=")[1].split(" ")[0]
-                h, m, s = time_str.split(":")
-                current_time = int(h)*3600 + int(m)*60 + float(s)
-                if duration > 0:
-                    await progress_callback(current_time, duration)
-            except Exception:
-                pass
                 
     await process.wait()
     return process.returncode == 0
