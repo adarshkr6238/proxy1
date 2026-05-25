@@ -120,5 +120,9 @@ async def process_video_task(client, task, queue_manager):
             progress=up_progress
         )
         await status_msg.delete()
+        
+        # Immediate post-task cleanup
+        import gc
+        gc.collect() 
     except Exception as e:
         await status_msg.edit_text(f"❌ Upload failed: {e}")

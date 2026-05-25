@@ -56,8 +56,10 @@ class VideoBot(Client):
 
     async def _cleanup_loop(self):
         while True:
+            import gc
             cleanup_old_files()
-            await asyncio.sleep(3600) # Every hour
+            gc.collect() # Force garbage collection
+            await asyncio.sleep(600) # Every 10 minutes
 
 bot = VideoBot()
 

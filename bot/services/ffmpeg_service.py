@@ -30,10 +30,11 @@ async def compress_video(input_path, output_path, preset_config, progress_callba
     crf = preset_config['crf']
     scale = preset_config['scale']
     
-    # Base command
+    # Base command optimized for low RAM
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf),
+        '-threads', '1', # Strict 1-thread to prevent RAM spikes
+        '-c:v', 'libx264', '-preset', 'superfast', '-crf', str(crf),
         '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'
     ]
     

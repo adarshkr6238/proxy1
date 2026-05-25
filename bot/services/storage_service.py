@@ -12,16 +12,16 @@ def setup_storage():
             os.makedirs(d)
 
 def cleanup_old_files():
-    now = time.time()
-    # Cleanup /tmp older than 24h
+    # Surgical cleanup: Wipe EVERYTHING in temp dirs to prevent any leaks
     for d in [Config.DOWNLOAD_DIR, Config.TEMP_DIR]:
+        if not os.path.exists(d):
+            continue
         for f in os.listdir(d):
             f_path = os.path.join(d, f)
-            if os.stat(f_path).st_mtime < now - 86400:
-                try:
-                    if os.path.isfile(f_path):
-                        os.remove(f_path)
-                    else:
-                        shutil.rmtree(f_path)
-                except Exception as e:
-                    logger.error(f"Cleanup error: {e}")
+            try:
+                if os.path.isfile(f_path) or os.path.islink(f_path):
+                    os.unlink(f_path)
+                elif os.path.isdir(f_path):
+                    shutil.rmtree(f_path)
+            except Exception as e:
+                logger.error(f"Cleanup error for {f_path}: {e}")
