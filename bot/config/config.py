@@ -19,9 +19,9 @@ class Config:
     
     # FFmpeg presets (Logic handled in ffmpeg_service.py)
     PRESETS = {
-        "low": {"desc": "Max 480p/400p, optimized bitrate"},
-        "medium": {"desc": "Max 400p, balanced bitrate"},
-        "high": {"desc": "Max 360p, smaller file"}
+        "low": {"desc": "Max 400p, high quality bitrate"},
+        "medium": {"desc": "Max 360p, balanced bitrate"},
+        "high": {"desc": "Max 240p, small file"}
     }
     
     DEFAULT_PRESET = "medium"
