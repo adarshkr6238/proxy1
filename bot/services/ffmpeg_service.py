@@ -30,11 +30,11 @@ async def compress_video(input_path, output_path, preset_config, progress_callba
     crf = preset_config['crf']
     scale = preset_config['scale']
     
-    # Base command optimized for low RAM but better speed
+    # High-performance command for Hugging Face (16GB RAM)
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-threads', '2', # 2 threads is a good balance for 512MB RAM
-        '-c:v', 'libx264', '-preset', 'superfast', '-crf', str(crf),
+        '-threads', '4', # Increase to 4 threads for faster encoding
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf),
         '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'
     ]
     

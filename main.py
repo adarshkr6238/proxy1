@@ -39,7 +39,7 @@ class VideoBot(Client):
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
             bot_token=Config.BOT_TOKEN,
-            workers=4
+            workers=8
         )
         self.queue_manager = QueueManager(self)
         self.queue_manager.process_task = self._process_task_bridge
