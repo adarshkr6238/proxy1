@@ -2,7 +2,7 @@ import logging
 import asyncio
 import os
 from aiohttp import web
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from bot.config.config import Config
 from bot.services.queue_manager import QueueManager
 from bot.services.storage_service import setup_storage, cleanup_old_files
@@ -83,12 +83,15 @@ async def _queue(c, m): await queue_cmd(c, m, bot.queue_manager)
 @bot.on_message((filters.video | filters.document) & filters.private)
 async def _media(c, m): await handle_video(c, m, bot.queue_manager)
 
+async def main():
+    await bot.start()
+    await idle()
+    await bot.stop()
+
 if __name__ == "__main__":
-    bot.start()
     try:
-        from pyrogram import idle
-        idle()
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
-        logger.error(f"Error in main idle: {e}")
-    finally:
-        bot.stop()
+        logger.error(f"Fatal error: {e}")
