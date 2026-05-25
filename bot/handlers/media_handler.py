@@ -58,6 +58,8 @@ async def download_stage(client, task):
         last_update = await progress_bar(current, total, "Downloading", status_msg, start_time, last_update)
 
     try:
+        # Ensure directories exist right before download
+        setup_storage()
         await message.download(file_name=input_path, progress=down_progress)
         await status_msg.edit_text("✅ Downloaded! Waiting for compression slot...")
     except Exception as e:
