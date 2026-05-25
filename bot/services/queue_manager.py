@@ -12,12 +12,10 @@ class QueueManager:
         self.bot = bot
         self.queue = asyncio.Queue()
         self.current_task = None
-        self.is_running = False
-        # Use a path that might persist across deploys if Render allows, 
-        # but /tmp is wiped on restart. 
-        # For true persistence on Render you need a Disk, but for now we use a local file.
         self.settings_file = "user_settings.json" 
         self.user_settings = self._load_settings()
+        # Start worker immediately
+        asyncio.create_task(self.worker())
 
     def _load_settings(self):
         if os.path.exists(self.settings_file):
@@ -40,13 +38,10 @@ class QueueManager:
         if self.queue.qsize() >= Config.MAX_QUEUE_SIZE:
             return False, "Queue is full"
         await self.queue.put(task)
-        if not self.is_running:
-            asyncio.create_task(self.worker())
         return True, self.queue.qsize()
 
     async def worker(self):
-        self.is_running = True
-        while not self.queue.empty():
+        while True:
             self.current_task = await self.queue.get()
             try:
                 await self.process_task(self.current_task)
@@ -56,9 +51,9 @@ class QueueManager:
                 self.queue.task_done()
                 self.cleanup_task(self.current_task)
                 self.current_task = None
-        self.is_running = False
 
     async def process_task(self, task):
+        # Bridge to media_handler
         pass
 
     def cleanup_task(self, task):
@@ -79,3 +74,9 @@ class QueueManager:
 
     def get_queue_status(self):
         return self.queue.qsize()
+
+    def get_current_task_info(self):
+        if self.current_task:
+            media = self.current_task['message'].video or self.current_task['message'].document
+            return media.file_name or "Unknown Video"
+        return None

@@ -73,4 +73,15 @@ async def queue_cmd(client, message: Message, queue_manager):
     if message.from_user.id not in Config.AUTH_USERS:
         return
     count = queue_manager.get_queue_status()
-    await message.reply_text(f"📝 **Queue Status**\n\nTasks waiting: {count}")
+    current = queue_manager.get_current_task_info()
+    
+    status = "📝 **Queue Status**\n\n"
+    if current:
+        status += f"⚙️ **Currently Processing:** `{current}`\n"
+    else:
+        status += "✅ **Queue is empty.**\n"
+        
+    if count > 0:
+        status += f"⏳ **Tasks Waiting:** {count}"
+    
+    await message.reply_text(status)
