@@ -33,6 +33,14 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     width = int(video_stream.get('width', 0))
     height = int(video_stream.get('height', 0))
     
+    # Parse framerate
+    fps_str = video_stream.get('avg_frame_rate', '0/1')
+    try:
+        num, den = map(int, fps_str.split('/'))
+        fps = num / den if den != 0 else 0
+    except:
+        fps = 0
+
     # Logic for target bitrate and resolution
     target_height = -2 # Default to original aspect ratio
     v_bitrate = "500k"
@@ -62,14 +70,22 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             target_height = 240
             v_bitrate = "150k"
 
-    # Extreme speed optimizations for Hugging Face
+    # Base command optimized for Hugging Face
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
         '-threads', '0', # Auto-optimal threads
-        '-c:v', 'libx264', '-preset', 'superfast', # Faster preset
-        '-b:v', v_bitrate, # Simple target bitrate
-        '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
+        '-c:v', 'libx264', '-preset', 'superfast'
     ]
+
+    # Apply FPS cap if necessary
+    if fps > 24:
+        cmd.extend(['-r', '24'])
+
+    # Add bitrate and other flags
+    cmd.extend([
+        '-b:v', v_bitrate,
+        '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
+    ])
     
     if target_height != -2:
         cmd.extend(['-vf', f"scale=-2:{target_height}"])
@@ -91,7 +107,7 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 
             line = chunk.decode('utf-8', errors='ignore')
             
-            # Keep track of more lines for error reporting (20 lines)
+            # Keep track of last few lines for error reporting (20 lines)
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
