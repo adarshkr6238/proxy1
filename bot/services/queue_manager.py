@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     def __init__(self, bot):
         self.bot = bot
-        # Using PriorityQueue: tuple (priority_score, task)
+        # Using PriorityQueue: tuple (priority_score, count, task)
         self.download_queue = asyncio.PriorityQueue()
         self.compression_queue = asyncio.PriorityQueue()
+        self.task_counter = 0 # Tie-breaker for PriorityQueue
         
         self.active_compression_task = None
         self.paused_compression_tasks = []
@@ -49,15 +50,16 @@ class QueueManager:
         duration = task.get('duration', 0)
         priority = 1 if (0 < duration <= 300) else 2
         
-        await self.download_queue.put((priority, task))
+        self.task_counter += 1
+        await self.download_queue.put((priority, self.task_counter, task))
         return True, self.download_queue.qsize() + self.compression_queue.qsize()
 
     async def download_worker(self):
         while True:
-            priority, task = await self.download_queue.get()
+            priority, count, task = await self.download_queue.get()
             try:
                 await self.process_download(task)
-                await self.compression_queue.put((priority, task))
+                await self.compression_queue.put((priority, count, task))
             except Exception as e:
                 logger.error(f"Error in download worker: {e}")
                 self.cleanup_task(task)
@@ -66,7 +68,7 @@ class QueueManager:
 
     async def compression_worker(self):
         while True:
-            priority, task = await self.compression_queue.get()
+            priority, count, task = await self.compression_queue.get()
             
             # Wait if another task is actively running and NOT paused
             while self.active_compression_task and not self.active_compression_task.get('is_paused', False):
