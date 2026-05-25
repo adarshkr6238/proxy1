@@ -11,49 +11,58 @@ from bot.services.storage_service import setup_storage
 logger = logging.getLogger(__name__)
 
 async def handle_video(client, message, queue_manager):
-    user_id = message.from_user.id
-    if not message.video and not message.document:
-        return
+    try:
+        user_id = message.from_user.id
+        logger.info(f"Received media from user {user_id} (Msg: {message.id})")
 
-    if message.document:
-        mime = message.document.mime_type or ""
-        if not mime.startswith("video/"):
+        if not message.video and not message.document:
+            logger.info(f"Message {message.id} is not a video or document.")
             return
 
-    setup_storage()
-    status_msg = await message.reply_text("⏳ Analyzing and adding to queue...", quote=True)
-    
-    duration = message.video.duration if message.video else 0
-    if not duration and message.document:
-        duration = 0 
+        if message.document:
+            mime = message.document.mime_type or ""
+            if not mime.startswith("video/"):
+                logger.info(f"Document {message.id} has non-video mime: {mime}")
+                return
 
-    task = {
-        'message': message,
-        'status_msg': status_msg,
-        'user_id': user_id,
-        'paths': [],
-        'input_path': None,
-        'duration': duration,
-        'is_paused': False,
-        'process': None
-    }
-    
-    await status_msg.edit_text(
-        "⏳ Adding to queue...",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
-    )
-    
-    success, pos = await queue_manager.add_task(task)
-    if not success:
-        await status_msg.edit_text(f"❌ {pos}")
-        return
+        setup_storage()
+        
+        # Immediate reply to confirm bot saw the video
+        status_msg = await message.reply_text("⏳ Analyzing and adding to queue...", quote=True)
+        
+        duration = message.video.duration if message.video else 0
+        if not duration and message.document:
+            duration = 0 
 
-    await queue_manager.check_and_pause_for_priority(duration)
+        task = {
+            'message': message,
+            'status_msg': status_msg,
+            'user_id': user_id,
+            'paths': [],
+            'input_path': None,
+            'duration': duration,
+            'is_paused': False,
+            'process': None
+        }
+        
+        await status_msg.edit_text(
+            "⏳ Adding to queue...",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
+        )
+        
+        success, pos = await queue_manager.add_task(task)
+        if not success:
+            await status_msg.edit_text(f"❌ {pos}")
+            return
 
-    await status_msg.edit_text(
-        f"📝 Added to queue (Position: {pos})\n\nShort videos (<= 5 min) get priority!",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
-    )
+        await queue_manager.check_and_pause_for_priority(duration)
+
+        await status_msg.edit_text(
+            f"📝 Added to queue (Position: {pos})\n\nShort videos (<= 5 min) get priority!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{status_msg.id}")]])
+        )
+    except Exception as e:
+        logger.error(f"Error in handle_video for msg {message.id}: {e}", exc_info=True)
 
 async def download_stage(client, task):
     message = task['message']
