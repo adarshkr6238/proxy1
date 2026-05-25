@@ -1,25 +1,29 @@
+---
+title: Telegram Video Compressor
+emoji: 🎥
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # Telegram Video Compression Bot
 
-Production-ready Telegram bot optimized for Render (512MB RAM) using MTProto for large files.
+Optimized for Hugging Face Spaces (16GB RAM) using MTProto for large files.
 
-## Features
-- **MTProto Support:** Handle files >2GB (no Bot API limits).
-- **Sequential Queue:** Processes one video at a time to stay under 512MB RAM.
-- **FFmpeg Powered:** H.264/AAC encoding with CRF-based quality.
-- **Private:** Only approved users can use it.
-- **Progress Tracking:** Real-time download/compress/upload bars.
+## Deployment on Hugging Face
 
-## Deployment on Render
-
-1. **Fork/Clone** this repository to your GitHub.
-2. Create a new **Blueprint Instance** on Render.
-3. Select your repository.
-4. Set the following **Environment Variables**:
+1. **Create a New Space:** Go to [huggingface.co/new-space](https://huggingface.co/new-space).
+2. **Name it:** e.g., `video-compressor`.
+3. **SDK:** Select **Docker**.
+4. **Template:** Blank.
+5. **Private/Public:** Choose Private if you don't want others to see your logs.
+6. **Settings -> Variables and Secrets:** Add the following **Secrets**:
    - `API_ID`: From [my.telegram.org](https://my.telegram.org)
    - `API_HASH`: From [my.telegram.org](https://my.telegram.org)
    - `BOT_TOKEN`: From [@BotFather](https://t.me/BotFather)
    - `OWNER_ID`: Your Telegram User ID.
-5. Deploy!
+7. **Upload Files:** Upload all files from this repo to the Space.
 
 ## Commands
 - `/start` - Start the bot.
@@ -27,8 +31,3 @@ Production-ready Telegram bot optimized for Render (512MB RAM) using MTProto for
 - `/settings` - Change compression level.
 - `/queue` - Check waiting tasks.
 - `/stats` - See system usage.
-
-## Technical Details
-- **RAM Optimization:** Uses `veryfast` FFmpeg preset and limited concurrency.
-- **Storage:** Uses `/tmp` for processing, automatically cleaned up.
-- **Async:** Built on `Pyrogram` for non-blocking I/O.
