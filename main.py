@@ -50,6 +50,8 @@ class VideoBot(Client):
     async def start(self):
         await super().start()
         setup_storage()
+        # Start queue worker
+        self.queue_manager.start_worker()
         # Start health check server
         asyncio.create_task(start_health_server())
         # Start periodic cleanup

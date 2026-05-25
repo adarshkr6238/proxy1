@@ -74,7 +74,6 @@ async def process_video_task(client, task, queue_manager):
 
     # 2. Compress
     preset_name = queue_manager.get_user_preset(user_id)
-    preset_config = Config.PRESETS[preset_name]
     output_path = os.path.join(Config.TEMP_DIR, f"compressed_{message.id}.mp4")
     task['paths'].append(output_path)
 
@@ -86,7 +85,7 @@ async def process_video_task(client, task, queue_manager):
         nonlocal last_update
         last_update = await progress_bar(current, total, f"Compressing ({preset_name})", status_msg, start_time, last_update)
 
-    success = await compress_video(input_path, output_path, preset_config, comp_progress)
+    success = await compress_video(input_path, output_path, preset_name, comp_progress)
     if not success:
         await status_msg.edit_text("❌ Compression failed.")
         return

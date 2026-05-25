@@ -14,7 +14,9 @@ class QueueManager:
         self.current_task = None
         self.settings_file = "user_settings.json" 
         self.user_settings = self._load_settings()
-        # Start worker immediately
+
+    def start_worker(self):
+        # This will be called from VideoBot.start() where the loop is running
         asyncio.create_task(self.worker())
 
     def _load_settings(self):

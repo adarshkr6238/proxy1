@@ -19,27 +19,60 @@ async def get_video_info(file_path):
         return None
     return json.loads(stdout)
 
-async def compress_video(input_path, output_path, preset_config, progress_callback):
-    # Get video duration for progress calculation
+async def compress_video(input_path, output_path, preset_name, progress_callback):
+    # Get video info
     info = await get_video_info(input_path)
     if not info:
         return False
         
     duration = float(info.get('format', {}).get('duration', 0))
+    video_stream = next((s for s in info['streams'] if s['codec_type'] == 'video'), None)
+    if not video_stream:
+        return False
+        
+    width = int(video_stream.get('width', 0))
+    height = int(video_stream.get('height', 0))
     
-    crf = preset_config['crf']
-    scale = preset_config['scale']
+    # Logic for target bitrate and resolution
+    target_height = -2 # Default to original aspect ratio
+    v_bitrate = "500k"
+    a_bitrate = "96k"
     
-    # High-performance command for Hugging Face (16GB RAM)
+    if duration > 900: # > 15 minutes
+        if preset_name == "low":
+            target_height = 360
+            v_bitrate = "250k"
+        elif preset_name == "medium":
+            target_height = 240
+            v_bitrate = "150k"
+        else: # high
+            target_height = 144
+            v_bitrate = "100k"
+    else: # <= 15 minutes
+        if preset_name == "low":
+            if height > 720:
+                target_height = 400
+            elif height >= 480:
+                target_height = 360
+            v_bitrate = "500k"
+        elif preset_name == "medium":
+            target_height = 360
+            v_bitrate = "300k"
+        else: # high
+            target_height = 240
+            v_bitrate = "150k"
+
+    # Base command optimized for high-RAM Hugging Face environment
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-threads', '4', # Increase to 4 threads for faster encoding
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf),
-        '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart'
+        '-threads', '4', 
+        '-c:v', 'libx264', '-preset', 'veryfast',
+        '-b:v', v_bitrate, '-maxrate', v_bitrate, '-bufsize', '1M',
+        '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
     ]
     
-    if scale != -1:
-        cmd.extend(['-vf', f"scale=-2:{scale}"])
+    if target_height != -2:
+        cmd.extend(['-vf', f"scale=-2:{target_height}"])
         
     cmd.append(output_path)
     
