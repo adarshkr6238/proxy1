@@ -62,10 +62,14 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             target_height = 240
             v_bitrate = "150k"
 
+    # Dynamic thread detection: 1 less than max cores
+    cpu_count = os.cpu_count() or 1
+    threads = max(1, cpu_count - 1)
+
     # Base command optimized for high-RAM Hugging Face environment
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-threads', '4', 
+        '-threads', str(threads), 
         '-c:v', 'libx264', '-preset', 'veryfast',
         '-b:v', v_bitrate, '-maxrate', v_bitrate, '-bufsize', '1M',
         '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
