@@ -23,12 +23,12 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     # Get video info
     info = await get_video_info(input_path)
     if not info:
-        return False
+        return False, "Could not get video info with ffprobe."
         
     duration = float(info.get('format', {}).get('duration', 0))
     video_stream = next((s for s in info['streams'] if s['codec_type'] == 'video'), None)
     if not video_stream:
-        return False
+        return False, "No video stream found in file."
         
     width = int(video_stream.get('width', 0))
     height = int(video_stream.get('height', 0))
@@ -62,15 +62,11 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             target_height = 240
             v_bitrate = "150k"
 
-    # Dynamic thread detection: 1 less than max cores
-    cpu_count = os.cpu_count() or 1
-    threads = max(1, cpu_count - 1)
-
-    # Base command optimized for high-RAM Hugging Face environment
+    # Extreme speed optimizations for Hugging Face
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-threads', str(threads), 
-        '-c:v', 'libx264', '-preset', 'veryfast',
+        '-threads', '0', # Auto-optimal threads
+        '-c:v', 'libx264', '-preset', 'superfast', # Faster preset
         '-b:v', v_bitrate, '-maxrate', v_bitrate, '-bufsize', '1M',
         '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
     ]
@@ -84,20 +80,24 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
         *cmd, stderr=asyncio.subprocess.PIPE
     )
     
+    last_error_lines = []
+    
     # FFmpeg writes progress to stderr
     while True:
-        # Read until \r or \n as FFmpeg uses \r for progress updates
         try:
-            # We read chunk by chunk to avoid limit issues
             chunk = await process.stderr.read(1024)
             if not chunk:
                 break
                 
             line = chunk.decode('utf-8', errors='ignore')
+            
+            # Keep track of last few lines for error reporting
+            last_error_lines.append(line)
+            if len(last_error_lines) > 5:
+                last_error_lines.pop(0)
+
             if "time=" in line:
-                # Simple duration-based progress
                 try:
-                    # Look for time=00:00:00.00 pattern
                     import re
                     match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
                     if match:
@@ -113,4 +113,8 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             break
                 
     await process.wait()
-    return process.returncode == 0
+    if process.returncode != 0:
+        error_msg = "".join(last_error_lines).strip()
+        return False, error_msg or f"FFmpeg exited with code {process.returncode}"
+    
+    return True, None

@@ -124,15 +124,13 @@ async def compression_stage(client, task, queue_manager):
 
     try:
         # Check cancel inside compression loop happens via callback
-        # We also need to check if we can kill the ffmpeg process
-        # For simplicity, progress_bar raises Exception which we catch
-        success = await compress_video(input_path, output_path, preset_name, comp_progress)
+        success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress)
         
         if is_cancelled(msg_id):
              raise Exception("CANCELLED")
              
         if not success:
-            await status_msg.edit_text("❌ Compression failed.")
+            await status_msg.edit_text(f"❌ Compression failed:\n\n`{error_msg}`")
             return
 
         # 3. Upload
