@@ -9,7 +9,7 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     OWNER_ID = int(os.getenv("OWNER_ID", "0"))
     
-    # Authorized users (comma-separated string in env)
+    # Authorized users
     AUTH_USERS = set(int(x) for x in os.getenv("AUTH_USERS", "").split(",") if x.strip())
     AUTH_USERS.add(OWNER_ID)
     
@@ -17,12 +17,11 @@ class Config:
     DOWNLOAD_DIR = "/tmp/bot_downloads"
     TEMP_DIR = "/tmp/bot_temp"
     
-    # FFmpeg presets (Higher CRF = Smaller file)
-    # Aggressive values to ensure reduction
+    # FFmpeg presets (Logic handled in ffmpeg_service.py)
     PRESETS = {
-        "low": {"crf": 30, "scale": -1, "desc": "Light compression"},
-        "medium": {"crf": 34, "scale": 720, "desc": "Balanced compression"},
-        "high": {"crf": 40, "scale": 480, "desc": "Maximum compression (Tiny file)"}
+        "low": {"desc": "Max 480p/400p, optimized bitrate"},
+        "medium": {"desc": "Max 400p, balanced bitrate"},
+        "high": {"desc": "Max 360p, smaller file"}
     }
     
     DEFAULT_PRESET = "medium"

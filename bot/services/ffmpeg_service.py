@@ -41,39 +41,39 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     except:
         fps = 0
 
-    # Logic for target bitrate and resolution
-    target_height = -2 # Default to original aspect ratio
-    v_bitrate = "500k"
-    a_bitrate = "96k"
+    # Logic for target bitrate and resolution (Slightly increased per request)
+    target_height = -2 
+    v_bitrate = "600k"
+    a_bitrate = "64k" # Reduced per request
     
     if duration > 900: # > 15 minutes
         if preset_name == "low":
+            target_height = 400
+            v_bitrate = "350k"
+        elif preset_name == "medium":
             target_height = 360
             v_bitrate = "250k"
-        elif preset_name == "medium":
+        else: # high
             target_height = 240
             v_bitrate = "150k"
-        else: # high
-            target_height = 144
-            v_bitrate = "100k"
     else: # <= 15 minutes
         if preset_name == "low":
             if height > 720:
-                target_height = 400
+                target_height = 480
             elif height >= 480:
-                target_height = 360
-            v_bitrate = "500k"
+                target_height = 400
+            v_bitrate = "600k"
         elif preset_name == "medium":
-            target_height = 360
-            v_bitrate = "300k"
+            target_height = 400
+            v_bitrate = "400k"
         else: # high
-            target_height = 240
-            v_bitrate = "150k"
+            target_height = 360
+            v_bitrate = "250k"
 
     # Base command optimized for Hugging Face
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
-        '-threads', '0', # Auto-optimal threads
+        '-threads', '0', 
         '-c:v', 'libx264', '-preset', 'superfast'
     ]
 
@@ -107,7 +107,6 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
                 
             line = chunk.decode('utf-8', errors='ignore')
             
-            # Keep track of last few lines for error reporting (20 lines)
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
