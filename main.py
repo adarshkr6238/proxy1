@@ -97,6 +97,9 @@ async def main():
         await cb.answer("Cancelling task...", show_alert=True)
         await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
 
+    async def _stats_wrapper(c, m):
+        await stats_cmd(c, m, bot.queue_manager)
+
     # Manual Registration with async wrappers
     bot.on_message(filters.command("start") & filters.private)(start_cmd)
     bot.on_message(filters.command("help") & filters.private)(help_cmd)
@@ -104,7 +107,7 @@ async def main():
     bot.on_callback_query(filters.regex("^settings_main$"))(_settings_cb_wrapper)
     bot.on_callback_query(filters.regex("^set_"))(_set_preset_wrapper)
     bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_wrapper)
-    bot.on_message(filters.command("stats") & filters.private)(stats_cmd)
+    bot.on_message(filters.command("stats") & filters.private)(_stats_wrapper)
     bot.on_message(filters.command("queue") & filters.private)(_queue_wrapper)
     bot.on_message(filters.command("clear") & filters.private)(_clear_wrapper)
     bot.on_message((filters.video | filters.document) & filters.private)(_media_wrapper)

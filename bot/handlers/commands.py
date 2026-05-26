@@ -50,16 +50,47 @@ async def set_preset_cb(client, callback, queue_manager):
         reply_markup=get_settings_markup()
     )
 
-async def stats_cmd(client, message: Message):
-    # Simple stats, can be expanded
+async def stats_cmd(client, message: Message, queue_manager=None):
+    if message.from_user.id != Config.OWNER_ID:
+        await message.reply_text("⛔ **Access Denied:** This command is for the owner only.")
+        return
+
     import shutil
+    import psutil
+    
+    # System Stats
     total, used, free = shutil.disk_usage("/")
-    await message.reply_text(
-        "📊 **System Stats**\n\n"
-        f"💾 **Storage:** {used // (2**20)}MB used / {total // (2**20)}MB total\n"
-        "🚀 **Mode:** Async MTProto\n"
-        "📍 **Instance:** Hugging Face"
+    cpu_percent = psutil.cpu_percent(interval=0.5)
+    ram = psutil.virtual_memory()
+    
+    # Queue Stats
+    if queue_manager:
+        dl_queue = queue_manager.download_queue.qsize()
+        comp_queue = queue_manager.compression_queue.qsize()
+        active_dl = queue_manager.active_download_count
+        waiting_slot = queue_manager.waiting_for_slot_count
+        paused_tasks = len(queue_manager.paused_compression_tasks)
+        active_comp = "Yes" if queue_manager.active_compression_task else "No"
+    else:
+        dl_queue = comp_queue = active_dl = waiting_slot = paused_tasks = 0
+        active_comp = "Unknown"
+
+    status = (
+        "📊 **Owner Dashboard**\n\n"
+        "💻 **System Health:**\n"
+        f"├ **CPU:** {cpu_percent}%\n"
+        f"├ **RAM:** {ram.percent}% ({ram.used // (2**20)}MB / {ram.total // (2**20)}MB)\n"
+        f"└ **Disk:** {used // (2**20)}MB used / {total // (2**20)}MB total\n\n"
+        "⚙️ **Pipeline Status:**\n"
+        f"├ **Active Downloads:** {active_dl}/3\n"
+        f"├ **Waiting for DL Slot:** {waiting_slot}\n"
+        f"├ **Active Compression:** {active_comp}\n"
+        f"└ **Paused Compressions:** {paused_tasks}\n\n"
+        "📝 **Queues:**\n"
+        f"├ **Download Queue:** {dl_queue}\n"
+        f"└ **Compression Queue:** {comp_queue}"
     )
+    await message.reply_text(status)
 
 async def queue_cmd(client, message: Message, queue_manager):
     count = queue_manager.get_queue_status()

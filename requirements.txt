@@ -3,3 +3,4 @@ tgcrypto
 aiohttp
 python-dotenv
 uvloop
+psutil
