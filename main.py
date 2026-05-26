@@ -1,8 +1,9 @@
 import logging
 import asyncio
 import os
+import json
 import signal
-import uvloop # High performance event loop
+import uvloop
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from bot.config.config import Config
@@ -12,16 +13,11 @@ from bot.handlers.commands import start_cmd, help_cmd, settings_cmd, set_preset_
 from bot.handlers.media_handler import handle_video, download_stage, compression_stage
 from bot.utils.progress import cancel_task
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Health Check Server
 async def health_check(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot Network is running!")
 
 async def start_health_server():
     app = web.Application()
@@ -34,13 +30,13 @@ async def start_health_server():
     logger.info(f"Health check server started on port {port}")
 
 class VideoBot(Client):
-    def __init__(self):
-        logger.info("Initializing bot...")
+    def __init__(self, token, session_name):
+        logger.info(f"Initializing bot: {session_name}")
         super().__init__(
-            "video_compression_bot",
+            session_name,
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
-            bot_token=Config.BOT_TOKEN,
+            bot_token=token,
             workers=10
         )
         self.queue_manager = QueueManager(self)
@@ -55,13 +51,178 @@ class VideoBot(Client):
 
     async def start(self):
         await super().start()
-        setup_storage()
         self.queue_manager.start_worker()
-        asyncio.create_task(start_health_server())
-        asyncio.create_task(self._cleanup_loop())
-        logger.info("Bot started successfully!")
+        logger.info(f"Bot {self.name} started successfully!")
 
-    async def _cleanup_loop(self):
+class BotManager:
+    def __init__(self):
+        self.bots = {} # token -> VideoBot
+        self.bots_file = "cloned_bots.json"
+        
+        # Load saved clones
+        self.saved_tokens = []
+        if os.path.exists(self.bots_file):
+            try:
+                with open(self.bots_file, "r") as f:
+                    self.saved_tokens = json.load(f)
+            except: pass
+            
+        # Add primary bot token
+        if Config.BOT_TOKEN not in self.saved_tokens:
+            self.saved_tokens.append(Config.BOT_TOKEN)
+
+    def _save_tokens(self):
+        with open(self.bots_file, "w") as f:
+            json.dump(self.saved_tokens, f)
+
+    async def start_all(self):
+        for i, token in enumerate(self.saved_tokens):
+            await self.start_bot(token, f"bot_{i}")
+        
+        # Global cleanup loop
+        asyncio.create_task(self._global_cleanup_loop())
+
+    async def start_bot(self, token, name):
+        if token in self.bots:
+            return False, "Bot already running."
+            
+        bot = VideoBot(token, name)
+        
+        # Wrap handlers to inject the specific bot's queue_manager
+        async def _settings_wrapper(c, m): await settings_cmd(c, m, bot.queue_manager)
+        async def _settings_cb_wrapper(c, cb): 
+            await settings_cmd(c, cb.message, bot.queue_manager)
+            await cb.answer()
+        async def _set_preset_wrapper(c, cb): await set_preset_cb(c, cb, bot.queue_manager)
+        async def _queue_wrapper(c, m): await queue_cmd(c, m, bot.queue_manager)
+        async def _clear_wrapper(c, m): await clear_cmd(c, m, bot.queue_manager)
+        async def _media_wrapper(c, m): await handle_video(c, m, bot.queue_manager)
+        
+        async def _stats_wrapper(c, m):
+            # Also pass bot_manager to stats so owner sees active clones
+            await self.enhanced_stats_cmd(c, m, bot.queue_manager)
+
+        async def _cancel_cb_wrapper(c, cb):
+            msg_id = int(cb.data.split("_")[1])
+            cancel_task(msg_id)
+            await cb.answer("Cancelling task...", show_alert=True)
+            await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
+
+        # Clone Management Commands (Owner Only)
+        async def _addbot_cmd(c, m):
+            if m.from_user.id != Config.OWNER_ID: return
+            parts = m.text.split()
+            if len(parts) != 2:
+                await m.reply_text("Usage: `/addbot <bot_token>`")
+                return
+            new_token = parts[1]
+            success, msg = await self.add_clone(new_token)
+            await m.reply_text(msg)
+
+        async def _delbot_cmd(c, m):
+            if m.from_user.id != Config.OWNER_ID: return
+            parts = m.text.split()
+            if len(parts) != 2:
+                await m.reply_text("Usage: `/delbot <bot_token>`")
+                return
+            target_token = parts[1]
+            success, msg = await self.remove_clone(target_token)
+            await m.reply_text(msg)
+
+        bot.on_message(filters.command("start") & filters.private)(start_cmd)
+        bot.on_message(filters.command("help") & filters.private)(help_cmd)
+        bot.on_message(filters.command("settings") & filters.private)(_settings_wrapper)
+        bot.on_callback_query(filters.regex("^settings_main$"))(_settings_cb_wrapper)
+        bot.on_callback_query(filters.regex("^set_"))(_set_preset_wrapper)
+        bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_wrapper)
+        bot.on_message(filters.command("stats") & filters.private)(_stats_wrapper)
+        bot.on_message(filters.command("queue") & filters.private)(_queue_wrapper)
+        bot.on_message(filters.command("clear") & filters.private)(_clear_wrapper)
+        bot.on_message((filters.video | filters.document) & filters.private)(_media_wrapper)
+        
+        # Clone commands
+        bot.on_message(filters.command("addbot") & filters.private)(_addbot_cmd)
+        bot.on_message(filters.command("delbot") & filters.private)(_delbot_cmd)
+
+        try:
+            await bot.start()
+            self.bots[token] = bot
+            return True, "Bot started successfully."
+        except Exception as e:
+            logger.error(f"Failed to start bot with token {token[:10]}... : {e}")
+            return False, f"Failed to start: {e}"
+
+    async def add_clone(self, token):
+        if token in self.saved_tokens:
+            return False, "Token is already registered."
+        
+        name = f"bot_{len(self.saved_tokens)}"
+        success, msg = await self.start_bot(token, name)
+        if success:
+            self.saved_tokens.append(token)
+            self._save_tokens()
+            return True, f"✅ **Clone Added!** Successfully started and saved new bot."
+        return False, msg
+
+    async def remove_clone(self, token):
+        if token == Config.BOT_TOKEN:
+            return False, "⛔ Cannot delete the primary bot token."
+        if token not in self.bots:
+            return False, "Bot not found or not running."
+
+        bot = self.bots.pop(token)
+        await bot.stop()
+        
+        if token in self.saved_tokens:
+            self.saved_tokens.remove(token)
+            self._save_tokens()
+            
+        # Clean up session file
+        session_file = f"{bot.name}.session"
+        if os.path.exists(session_file):
+            os.remove(session_file)
+
+        return True, "✅ **Clone Removed!** Bot stopped and removed from network."
+
+    async def enhanced_stats_cmd(self, client, message, queue_manager):
+        if message.from_user.id != Config.OWNER_ID:
+            await message.reply_text("⛔ **Access Denied:** This command is for the owner only.")
+            return
+
+        import shutil
+        import psutil
+        
+        total, used, free = shutil.disk_usage("/")
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        ram = psutil.virtual_memory()
+        
+        dl_queue = queue_manager.download_queue.qsize()
+        comp_queue = queue_manager.compression_queue.qsize()
+        active_dl = queue_manager.active_download_count
+        waiting_slot = queue_manager.waiting_for_slot_count
+        paused_tasks = len(queue_manager.paused_compression_tasks)
+        active_comp = "Yes" if queue_manager.active_compression_task else "No"
+
+        status = (
+            "📊 **Network Dashboard**\n\n"
+            "💻 **System Health:**\n"
+            f"├ **CPU:** {cpu_percent}%\n"
+            f"├ **RAM:** {ram.percent}% ({ram.used // (2**20)}MB)\n"
+            f"└ **Disk:** {used // (2**20)}MB used\n\n"
+            "🤖 **Bot Network:**\n"
+            f"└ **Active Clones:** {len(self.bots)}\n\n"
+            "⚙️ **This Bot's Pipeline:**\n"
+            f"├ **Active Downloads:** {active_dl}/3\n"
+            f"├ **Waiting for DL Slot:** {waiting_slot}\n"
+            f"├ **Active Compression:** {active_comp}\n"
+            f"└ **Paused Compressions:** {paused_tasks}\n\n"
+            "📝 **This Bot's Queues:**\n"
+            f"├ **Download Queue:** {dl_queue}\n"
+            f"└ **Compression Queue:** {comp_queue}"
+        )
+        await message.reply_text(status)
+
+    async def _global_cleanup_loop(self):
         while True:
             import gc
             cleanup_old_files()
@@ -69,52 +230,13 @@ class VideoBot(Client):
             await asyncio.sleep(600) 
 
 async def main():
-    bot = VideoBot()
-
-    # Define proper async wrappers for handlers that need queue_manager
-    async def _settings_wrapper(c, m):
-        await settings_cmd(c, m, bot.queue_manager)
-
-    async def _settings_cb_wrapper(c, cb):
-        await settings_cmd(c, cb.message, bot.queue_manager)
-        await cb.answer()
-
-    async def _set_preset_wrapper(c, cb):
-        await set_preset_cb(c, cb, bot.queue_manager)
-
-    async def _queue_wrapper(c, m):
-        await queue_cmd(c, m, bot.queue_manager)
-
-    async def _clear_wrapper(c, m):
-        await clear_cmd(c, m, bot.queue_manager)
-
-    async def _media_wrapper(c, m):
-        await handle_video(c, m, bot.queue_manager)
-
-    async def _cancel_cb_wrapper(c, cb):
-        msg_id = int(cb.data.split("_")[1])
-        cancel_task(msg_id)
-        await cb.answer("Cancelling task...", show_alert=True)
-        await cb.message.edit_text("❌ Cancellation requested. Moving to next task...")
-
-    async def _stats_wrapper(c, m):
-        await stats_cmd(c, m, bot.queue_manager)
-
-    # Manual Registration with async wrappers
-    bot.on_message(filters.command("start") & filters.private)(start_cmd)
-    bot.on_message(filters.command("help") & filters.private)(help_cmd)
-    bot.on_message(filters.command("settings") & filters.private)(_settings_wrapper)
-    bot.on_callback_query(filters.regex("^settings_main$"))(_settings_cb_wrapper)
-    bot.on_callback_query(filters.regex("^set_"))(_set_preset_wrapper)
-    bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_wrapper)
-    bot.on_message(filters.command("stats") & filters.private)(_stats_wrapper)
-    bot.on_message(filters.command("queue") & filters.private)(_queue_wrapper)
-    bot.on_message(filters.command("clear") & filters.private)(_clear_wrapper)
-    bot.on_message((filters.video | filters.document) & filters.private)(_media_wrapper)
-
-    await bot.start()
+    setup_storage()
+    asyncio.create_task(start_health_server())
+    
+    manager = BotManager()
+    await manager.start_all()
+    
     await idle()
-    await bot.stop()
 
 if __name__ == "__main__":
     uvloop.install()
