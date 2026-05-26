@@ -1,4 +1,9 @@
 import time
+import logging
+from pyrogram.errors import FloodWait
+from bot.config.config import Config
+
+logger = logging.getLogger(__name__)
 
 _last_string = {}
 _cancelled_tasks = set()
@@ -22,12 +27,12 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
     now = time.time()
     percentage = current * 100 / total if total else 0
     
-    # Store percentage in task for preemption logic
     if task is not None:
         task['percentage'] = percentage
 
-    if now - last_update_time < 3 and current != total:
+    if now - last_update_time < Config.PROGRESS_UPDATE_INTERVAL and current != total:
         return last_update_time
+
     elapsed = now - start_time
     speed = current / elapsed if elapsed > 0 else 0
     eta = (total - current) / speed if speed > 0 else 0
@@ -54,6 +59,10 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
             progress_str,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_{msg_id}")]])
         )
+    except FloodWait as e:
+        logger.warning(f"FloodWait in progress bar: sleeping for {e.value}s in background")
+        # We don't sleep here to avoid blocking the download/compress task, 
+        # we just skip updating the UI for this tick.
     except Exception:
         pass
     
