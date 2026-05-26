@@ -17,7 +17,8 @@ class QueueManager:
         self.active_compression_task = None
         self.paused_compression_tasks = []
         self.active_download_count = 0
-        self.waiting_for_slot_count = 0 # Track tasks pulled from queue but waiting for slot
+        self.waiting_for_slot_count = 0
+        self.all_tasks = {} # Registry: msg_id -> task
         
         self.settings_file = "user_settings.json" 
         self.user_settings = self._load_settings()
@@ -51,11 +52,13 @@ class QueueManager:
         priority = 1 if (0 < duration <= 300) else 2
         
         self.task_counter += 1
+        msg_id = task['status_msg'].id
+        self.all_tasks[msg_id] = task
+        
         await self.download_queue.put((priority, self.task_counter, task))
         return True, self.get_position(task)
 
     def get_position(self, task):
-        # Position = items in queue + items waiting for slot + active tasks
         return self.download_queue.qsize() + self.compression_queue.qsize() + \
                self.waiting_for_slot_count + self.active_download_count + \
                (1 if self.active_compression_task else 0)
@@ -63,24 +66,19 @@ class QueueManager:
     async def download_worker(self):
         while True:
             priority, count, task = await self.download_queue.get()
-            # Non-blocking: move the slot-waiting into the task itself
             asyncio.create_task(self._run_download_task(task, priority, count))
 
     async def _run_download_task(self, task, priority, count):
+        msg_id = task['status_msg'].id
         self.waiting_for_slot_count += 1
         try:
-            # Dynamic slot waiting
             while True:
-                # 1 slot if compression running, 2 slots if idle
                 max_slots = 1 if (self.active_compression_task and not self.active_compression_task.get('is_paused')) else 2
                 if self.active_download_count < max_slots:
                     break
-                
-                # Check for cancellation while waiting
                 from bot.utils.progress import is_cancelled
-                if is_cancelled(task['status_msg'].id):
+                if is_cancelled(msg_id):
                     return
-                
                 await asyncio.sleep(1) 
 
             self.waiting_for_slot_count = max(0, self.waiting_for_slot_count - 1)
@@ -106,6 +104,7 @@ class QueueManager:
             asyncio.create_task(self._run_compression_task(task))
 
     async def _run_compression_task(self, task):
+        msg_id = task['status_msg'].id
         try:
             await self.process_compression(task)
         except Exception as e:
@@ -113,6 +112,8 @@ class QueueManager:
         finally:
             self.compression_queue.task_done()
             self.cleanup_task(task)
+            self.all_tasks.pop(msg_id, None) # Unregister
+            
             if self.active_compression_task == task:
                 self.active_compression_task = None
             elif task in self.paused_compression_tasks:
@@ -164,9 +165,7 @@ class QueueManager:
         self._save_settings()
 
     def get_queue_status(self):
-        return self.download_queue.qsize() + self.compression_queue.qsize() + \
-               self.waiting_for_slot_count + self.active_download_count + \
-               (1 if self.active_compression_task else 0)
+        return len(self.all_tasks)
 
     def get_current_task_info(self):
         if self.active_compression_task:
@@ -178,24 +177,35 @@ class QueueManager:
 
     async def clear_queues(self):
         """Administrative reset: stop everything and empty queues."""
-        if self.active_compression_task and self.active_compression_task.get('process'):
-            try: self.active_compression_task['process'].kill()
-            except: pass
-        for task in self.paused_compression_tasks:
+        from bot.utils.progress import cancel_task
+        
+        # 1. Cancel every registered task
+        for msg_id, task in list(self.all_tasks.items()):
+            cancel_task(msg_id)
+            # Kill process if any
             if task.get('process'):
                 try: task['process'].kill()
                 except: pass
+            # Notify user
+            try:
+                await task['status_msg'].edit_text("❌ **Cancelled:** System Reset by Owner.")
+            except: pass
+        
+        # 2. Drain queues
         while not self.download_queue.empty():
             try: self.download_queue.get_nowait(); self.download_queue.task_done()
             except: break
         while not self.compression_queue.empty():
             try: self.compression_queue.get_nowait(); self.compression_queue.task_done()
             except: break
+
+        self.all_tasks = {}
         self.active_compression_task = None
         self.paused_compression_tasks = []
         self.is_paused = False
         self.active_download_count = 0
         self.waiting_for_slot_count = 0
         self.task_counter = 0 
+        
         from bot.services.storage_service import wipe_all_storage
         wipe_all_storage()
