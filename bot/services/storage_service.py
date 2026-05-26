@@ -11,10 +11,10 @@ def setup_storage():
         os.makedirs(d, exist_ok=True)
 
 def cleanup_old_files():
-    # Only delete files older than 2 hours to avoid killing active tasks
-    # 2 hours = 7200 seconds
+    # Only delete files older than 40 minutes to avoid killing active tasks
+    # 40 minutes = 2400 seconds
     now = time.time()
-    cutoff = now - 7200
+    cutoff = now - 2400
     
     for d in [Config.DOWNLOAD_DIR, Config.TEMP_DIR]:
         if not os.path.exists(d):
