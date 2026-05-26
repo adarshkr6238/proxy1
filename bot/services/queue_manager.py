@@ -157,3 +157,34 @@ class QueueManager:
             status = " (Paused)" if self.active_compression_task.get('is_paused') else ""
             return f"{name}{status}"
         return None
+
+    async def clear_queues(self):
+        """Administrative reset: stop everything and empty queues."""
+        # 1. Kill active compression
+        if self.active_compression_task and self.active_compression_task.get('process'):
+            try:
+                self.active_compression_task['process'].kill()
+            except: pass
+        
+        # 2. Kill paused tasks
+        for task in self.paused_compression_tasks:
+            if task.get('process'):
+                try:
+                    task['process'].kill()
+                except: pass
+        
+        # 3. Empty the queues
+        while not self.download_queue.empty():
+            try: self.download_queue.get_nowait(); self.download_queue.task_done()
+            except: break
+            
+        while not self.compression_queue.empty():
+            try: self.compression_queue.get_nowait(); self.compression_queue.task_done()
+            except: break
+
+        self.active_compression_task = None
+        self.paused_compression_tasks = []
+        self.is_paused = False
+        
+        from bot.services.storage_service import wipe_all_storage
+        wipe_all_storage()

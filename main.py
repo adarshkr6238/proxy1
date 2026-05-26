@@ -8,7 +8,7 @@ from pyrogram import Client, filters, idle
 from bot.config.config import Config
 from bot.services.queue_manager import QueueManager
 from bot.services.storage_service import setup_storage, cleanup_old_files
-from bot.handlers.commands import start_cmd, help_cmd, settings_cmd, set_preset_cb, stats_cmd, queue_cmd
+from bot.handlers.commands import start_cmd, help_cmd, settings_cmd, set_preset_cb, stats_cmd, queue_cmd, clear_cmd
 from bot.handlers.media_handler import handle_video, download_stage, compression_stage
 from bot.utils.progress import cancel_task
 
@@ -85,6 +85,9 @@ async def main():
     async def _queue_wrapper(c, m):
         await queue_cmd(c, m, bot.queue_manager)
 
+    async def _clear_wrapper(c, m):
+        await clear_cmd(c, m, bot.queue_manager)
+
     async def _media_wrapper(c, m):
         await handle_video(c, m, bot.queue_manager)
 
@@ -103,6 +106,7 @@ async def main():
     bot.on_callback_query(filters.regex("^cancel_"))(_cancel_cb_wrapper)
     bot.on_message(filters.command("stats") & filters.private)(stats_cmd)
     bot.on_message(filters.command("queue") & filters.private)(_queue_wrapper)
+    bot.on_message(filters.command("clear") & filters.private)(_clear_wrapper)
     bot.on_message((filters.video | filters.document) & filters.private)(_media_wrapper)
 
     await bot.start()

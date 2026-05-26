@@ -75,3 +75,12 @@ async def queue_cmd(client, message: Message, queue_manager):
         status += f"⏳ **Tasks Waiting:** {count}"
     
     await message.reply_text(status)
+
+async def clear_cmd(client, message: Message, queue_manager):
+    if message.from_user.id != Config.OWNER_ID:
+        await message.reply_text("⛔ **Access Denied:** This command is for the owner only.")
+        return
+        
+    await message.reply_text("🧹 **Cleaning System:** Stopping all tasks and wiping storage...")
+    await queue_manager.clear_queues()
+    await message.reply_text("✅ **System Reset:** All queues emptied and files deleted.")
