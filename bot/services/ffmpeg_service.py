@@ -70,7 +70,10 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             v_bitrate = "200k"
 
     cmd = [
-        'ffmpeg', '-y', '-i', input_path,
+        'ffmpeg', '-y', 
+        '-fflags', '+genpts', # Regenerate missing timestamps
+        '-i', input_path,
+        '-avoid_negative_ts', 'make_zero', # Fix negative start times
         '-threads', '0', 
         '-c:v', 'libx264', '-preset', 'superfast'
     ]
