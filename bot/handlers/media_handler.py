@@ -30,6 +30,11 @@ async def handle_video(client, message, queue_manager):
         if not duration and message.document:
             duration = 0 
 
+        preset_override = None
+        caption = message.caption or message.text or ""
+        if caption.strip().startswith("/diff"):
+            preset_override = "diff"
+
         task = {
             'message': message,
             'status_msg': status_msg,
@@ -39,7 +44,8 @@ async def handle_video(client, message, queue_manager):
             'duration': duration,
             'is_paused': False,
             'process': None,
-            'percentage': 0
+            'percentage': 0,
+            'preset_override': preset_override
         }
         
         await status_msg.edit_text(
@@ -118,7 +124,7 @@ async def compression_stage(client, task, queue_manager):
         await status_msg.edit_text("❌ Task Cancelled.")
         return
 
-    preset_name = queue_manager.get_user_preset(user_id)
+    preset_name = task.get('preset_override') or queue_manager.get_user_preset(user_id)
     output_path = os.path.join(Config.TEMP_DIR, f"compressed_{message.id}.mp4")
     task['paths'].append(output_path)
 

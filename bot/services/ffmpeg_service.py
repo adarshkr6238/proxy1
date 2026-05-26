@@ -69,25 +69,40 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
             target_height = 240
             v_bitrate = "200k"
 
-    cmd = [
-        'ffmpeg', '-y', 
-        '-fflags', '+genpts', # Regenerate missing timestamps
-        '-i', input_path,
-        '-avoid_negative_ts', 'make_zero', # Fix negative start times
-        '-threads', '0', 
-        '-c:v', 'libx264', '-preset', 'superfast'
-    ]
+    if preset_name == "diff":
+        cmd = [
+            'ffmpeg', '-y', 
+            '-fflags', '+genpts',
+            '-i', input_path,
+            '-avoid_negative_ts', 'make_zero',
+            '-threads', '0', 
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '24',
+            '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-ac', '2', '-b:a', '128k',
+            '-movflags', '+faststart'
+        ]
+        if fps > 24:
+            cmd.extend(['-r', '24'])
+    else:
+        cmd = [
+            'ffmpeg', '-y', 
+            '-fflags', '+genpts', # Regenerate missing timestamps
+            '-i', input_path,
+            '-avoid_negative_ts', 'make_zero', # Fix negative start times
+            '-threads', '0', 
+            '-c:v', 'libx264', '-preset', 'superfast'
+        ]
 
-    if fps > 24:
-        cmd.extend(['-r', '24'])
+        if fps > 24:
+            cmd.extend(['-r', '24'])
 
-    cmd.extend([
-        '-b:v', v_bitrate,
-        '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
-    ])
-    
-    if target_height != -2:
-        cmd.extend(['-vf', f"scale=-2:{target_height}"])
+        cmd.extend([
+            '-b:v', v_bitrate,
+            '-c:a', 'aac', '-b:a', a_bitrate, '-movflags', '+faststart'
+        ])
+        
+        if target_height != -2:
+            cmd.extend(['-vf', f"scale=-2:{target_height}"])
         
     cmd.append(output_path)
     
