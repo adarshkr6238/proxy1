@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     def __init__(self, bot):
         self.bot = bot
-        # Using PriorityQueue: tuple (priority_score, count, task)
         self.download_queue = asyncio.PriorityQueue()
         self.compression_queue = asyncio.PriorityQueue()
-        self.task_counter = 0 # Tie-breaker for PriorityQueue
+        self.task_counter = 0
         
         self.active_compression_task = None
         self.paused_compression_tasks = []
         self.active_download_count = 0
+        self.waiting_for_slot_count = 0 # Track tasks pulled from queue but waiting for slot
         
         self.settings_file = "user_settings.json" 
         self.user_settings = self._load_settings()
@@ -47,7 +47,6 @@ class QueueManager:
         if self.get_queue_status() >= Config.MAX_QUEUE_SIZE:
             return False, "Queue is full"
         
-        # Priority mapping: Short videos (<5m) get Priority 1, others Priority 2
         duration = task.get('duration', 0)
         priority = 1 if (0 < duration <= 300) else 2
         
@@ -56,47 +55,54 @@ class QueueManager:
         return True, self.get_position(task)
 
     def get_position(self, task):
-        # Rough estimate: items in queues + active downloads + active compression
-        return self.download_queue.qsize() + self.compression_queue.qsize() + self.active_download_count + (1 if self.active_compression_task else 0)
+        # Position = items in queue + items waiting for slot + active tasks
+        return self.download_queue.qsize() + self.compression_queue.qsize() + \
+               self.waiting_for_slot_count + self.active_download_count + \
+               (1 if self.active_compression_task else 0)
 
     async def download_worker(self):
         while True:
             priority, count, task = await self.download_queue.get()
-            
+            # Non-blocking: move the slot-waiting into the task itself
+            asyncio.create_task(self._run_download_task(task, priority, count))
+
+    async def _run_download_task(self, task, priority, count):
+        self.waiting_for_slot_count += 1
+        try:
             # Dynamic slot waiting
             while True:
                 # 1 slot if compression running, 2 slots if idle
                 max_slots = 1 if (self.active_compression_task and not self.active_compression_task.get('is_paused')) else 2
                 if self.active_download_count < max_slots:
                     break
-                await asyncio.sleep(2) # Check every 2 seconds
                 
-            # Non-blocking task creation
-            asyncio.create_task(self._run_download_task(task, priority, count))
+                # Check for cancellation while waiting
+                from bot.utils.progress import is_cancelled
+                if is_cancelled(task['status_msg'].id):
+                    return
+                
+                await asyncio.sleep(1) 
 
-    async def _run_download_task(self, task, priority, count):
-        self.active_download_count += 1
-        try:
-            await self.process_download(task)
-            # Once downloaded, move to compression queue
-            await self.compression_queue.put((priority, count, task))
-        except Exception as e:
-            logger.error(f"Download task failed: {e}")
-            self.cleanup_task(task)
+            self.waiting_for_slot_count = max(0, self.waiting_for_slot_count - 1)
+            self.active_download_count += 1
+            
+            try:
+                await self.process_download(task)
+                await self.compression_queue.put((priority, count, task))
+            except Exception as e:
+                logger.error(f"Download task failed: {e}")
+                self.cleanup_task(task)
+            finally:
+                self.active_download_count = max(0, self.active_download_count - 1)
         finally:
-            self.active_download_count = max(0, self.active_download_count - 1)
             self.download_queue.task_done()
 
     async def compression_worker(self):
         while True:
             priority, count, task = await self.compression_queue.get()
-            
-            # Wait if another task is actively running and NOT paused
             while self.active_compression_task and not self.active_compression_task.get('is_paused', False):
                 await asyncio.sleep(1)
-            
             self.active_compression_task = task
-            # Run compression in background so worker can handle preemption
             asyncio.create_task(self._run_compression_task(task))
 
     async def _run_compression_task(self, task):
@@ -107,27 +113,22 @@ class QueueManager:
         finally:
             self.compression_queue.task_done()
             self.cleanup_task(task)
-            
             if self.active_compression_task == task:
                 self.active_compression_task = None
             elif task in self.paused_compression_tasks:
                 try: self.paused_compression_tasks.remove(task)
                 except: pass
-                
             self.resume_if_paused()
 
     async def check_and_pause_for_priority(self, new_task_duration):
         if not self.active_compression_task:
             return
-            
         curr_duration = self.active_compression_task.get('duration', 0)
-        # Preempt if current is long (>15m) and new is short (<=5m)
         if curr_duration > 900 and 0 < new_task_duration <= 300:
             if not self.active_compression_task.get('is_paused', False):
                 process = self.active_compression_task.get('process')
                 if process:
                     try:
-                        logger.info(f"Pausing task for priority video")
                         os.kill(process.pid, signal.SIGSTOP)
                         self.active_compression_task['is_paused'] = True
                         self.paused_compression_tasks.append(self.active_compression_task)
@@ -143,7 +144,6 @@ class QueueManager:
             process = paused_task.get('process')
             if process:
                 try:
-                    logger.info("Resuming paused long task...")
                     os.kill(process.pid, signal.SIGCONT)
                 except Exception: pass
 
@@ -151,8 +151,7 @@ class QueueManager:
     async def process_compression(self, task): pass
 
     def cleanup_task(self, task):
-        paths = task.get('paths', [])
-        for p in paths:
+        for p in task.get('paths', []):
             if os.path.exists(p):
                 try: os.remove(p)
                 except: pass
@@ -165,7 +164,9 @@ class QueueManager:
         self._save_settings()
 
     def get_queue_status(self):
-        return self.download_queue.qsize() + self.compression_queue.qsize() + self.active_download_count + (1 if self.active_compression_task else 0)
+        return self.download_queue.qsize() + self.compression_queue.qsize() + \
+               self.waiting_for_slot_count + self.active_download_count + \
+               (1 if self.active_compression_task else 0)
 
     def get_current_task_info(self):
         if self.active_compression_task:
@@ -194,6 +195,7 @@ class QueueManager:
         self.paused_compression_tasks = []
         self.is_paused = False
         self.active_download_count = 0
+        self.waiting_for_slot_count = 0
         self.task_counter = 0 
         from bot.services.storage_service import wipe_all_storage
         wipe_all_storage()
