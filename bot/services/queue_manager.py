@@ -193,7 +193,7 @@ class QueueManager:
             if task.get('process'):
                 try: task['process'].kill()
                 except: pass
-            try: await task['status_msg'].edit_text("❌ **Cancelled:** System Reset by Owner.")
+            try: await task['status_msg'].edit_text("❌ **Cancelled:** System Reset by Owner.", reply_markup=None)
             except: pass
         while not self.download_queue.empty():
             try: self.download_queue.get_nowait(); self.download_queue.task_done()
