@@ -12,7 +12,7 @@ def is_cancelled(msg_id):
 def clear_cancel_flag(msg_id):
     _cancelled_tasks.discard(msg_id)
 
-async def progress_bar(current, total, status_text, message, start_time, last_update_time):
+async def progress_bar(current, total, status_text, message, start_time, last_update_time, task=None):
     global _last_string
     msg_id = message.id
 
@@ -20,10 +20,14 @@ async def progress_bar(current, total, status_text, message, start_time, last_up
         raise Exception("CANCELLED")
 
     now = time.time()
+    percentage = current * 100 / total if total else 0
+    
+    # Store percentage in task for preemption logic
+    if task is not None:
+        task['percentage'] = percentage
+
     if now - last_update_time < 3 and current != total:
         return last_update_time
-
-    percentage = current * 100 / total if total else 0
     elapsed = now - start_time
     speed = current / elapsed if elapsed > 0 else 0
     eta = (total - current) / speed if speed > 0 else 0

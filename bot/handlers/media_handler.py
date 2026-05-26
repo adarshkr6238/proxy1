@@ -16,18 +16,14 @@ async def handle_video(client, message, queue_manager):
         logger.info(f"Received media from user {user_id} (Msg: {message.id})")
 
         if not message.video and not message.document:
-            logger.info(f"Message {message.id} is not a video or document.")
             return
 
         if message.document:
             mime = message.document.mime_type or ""
             if not mime.startswith("video/"):
-                logger.info(f"Document {message.id} has non-video mime: {mime}")
                 return
 
         setup_storage()
-        
-        # Immediate reply to confirm bot saw the video
         status_msg = await message.reply_text("⏳ Analyzing and adding to queue...", quote=True)
         
         duration = message.video.duration if message.video else 0
@@ -42,7 +38,8 @@ async def handle_video(client, message, queue_manager):
             'input_path': None,
             'duration': duration,
             'is_paused': False,
-            'process': None
+            'process': None,
+            'percentage': 0
         }
         
         await status_msg.edit_text(
@@ -54,8 +51,6 @@ async def handle_video(client, message, queue_manager):
         if not success:
             await status_msg.edit_text(f"❌ {pos}")
             return
-
-        await queue_manager.check_and_pause_for_priority(duration)
 
         await status_msg.edit_text(
             f"📝 Added to queue (Position: {pos})\n\nShort videos (<= 5 min) get priority!",
@@ -88,7 +83,7 @@ async def download_stage(client, task):
 
     async def down_progress(current, total):
         nonlocal last_update
-        last_update = await progress_bar(current, total, "Downloading", status_msg, start_time, last_update)
+        last_update = await progress_bar(current, total, "Downloading", status_msg, start_time, last_update, task)
 
     try:
         setup_storage()
@@ -138,7 +133,7 @@ async def compression_stage(client, task, queue_manager):
         nonlocal last_update
         if task.get('is_paused'):
             return last_update
-        last_update = await progress_bar(current, total, f"Compressing ({preset_name})", status_msg, start_time, last_update)
+        last_update = await progress_bar(current, total, f"Compressing ({preset_name})", status_msg, start_time, last_update, task)
 
     try:
         success, error_msg = await compress_video(input_path, output_path, preset_name, comp_progress, task)
@@ -159,7 +154,7 @@ async def compression_stage(client, task, queue_manager):
 
         async def up_progress(current, total):
             nonlocal last_update
-            last_update = await progress_bar(current, total, "Uploading", status_msg, start_time, last_update)
+            last_update = await progress_bar(current, total, "Uploading", status_msg, start_time, last_update, task)
 
         orig_size = os.path.getsize(input_path)
         comp_size = os.path.getsize(output_path)
@@ -191,7 +186,6 @@ async def compression_stage(client, task, queue_manager):
         )
         await status_msg.delete()
         clear_cancel_flag(msg_id)
-        
         import gc
         gc.collect() 
     except Exception as e:

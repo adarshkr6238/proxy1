@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     def __init__(self, bot):
         self.bot = bot
+        # Using PriorityQueue: tuple (priority_score, count, task)
         self.download_queue = asyncio.PriorityQueue()
         self.compression_queue = asyncio.PriorityQueue()
-        self.task_counter = 0
+        self.task_counter = 0 # Tie-breaker for PriorityQueue
         
         self.active_compression_task = None
         self.paused_compression_tasks = []
@@ -79,7 +80,7 @@ class QueueManager:
                 from bot.utils.progress import is_cancelled
                 if is_cancelled(msg_id):
                     return
-                await asyncio.sleep(1) 
+                await asyncio.sleep(2) 
 
             self.waiting_for_slot_count = max(0, self.waiting_for_slot_count - 1)
             self.active_download_count += 1
@@ -97,11 +98,35 @@ class QueueManager:
 
     async def compression_worker(self):
         while True:
-            priority, count, task = await self.compression_queue.get()
+            priority, count, next_task = await self.compression_queue.get()
+            
+            # Intelligent Preemption Check
+            if self.active_compression_task and not self.active_compression_task.get('is_paused'):
+                active = self.active_compression_task
+                
+                active_dur = active.get('duration', 0)
+                next_dur = next_task.get('duration', 0)
+                active_pct = active.get('percentage', 0)
+                
+                # Condition: Active is long (>20m), Next is short (<=5m), Active < 60% done
+                if active_dur > 1200 and 0 < next_dur <= 300 and active_pct < 60:
+                    process = active.get('process')
+                    if process:
+                        try:
+                            logger.info(f"Pausing task at {active_pct}% for priority short video")
+                            os.kill(process.pid, signal.SIGSTOP)
+                            active['is_paused'] = True
+                            self.paused_compression_tasks.append(active)
+                            await active['status_msg'].edit_text(f"⏸ **Paused ({active_pct:.1f}%):** Processing a shorter priority video first...")
+                            self.active_compression_task = None 
+                        except Exception: pass
+
+            # Wait if another task is still active (wasn't preempted)
             while self.active_compression_task and not self.active_compression_task.get('is_paused', False):
                 await asyncio.sleep(1)
-            self.active_compression_task = task
-            asyncio.create_task(self._run_compression_task(task))
+            
+            self.active_compression_task = next_task
+            asyncio.create_task(self._run_compression_task(next_task))
 
     async def _run_compression_task(self, task):
         msg_id = task['status_msg'].id
@@ -112,7 +137,7 @@ class QueueManager:
         finally:
             self.compression_queue.task_done()
             self.cleanup_task(task)
-            self.all_tasks.pop(msg_id, None) # Unregister
+            self.all_tasks.pop(msg_id, None)
             
             if self.active_compression_task == task:
                 self.active_compression_task = None
@@ -120,22 +145,6 @@ class QueueManager:
                 try: self.paused_compression_tasks.remove(task)
                 except: pass
             self.resume_if_paused()
-
-    async def check_and_pause_for_priority(self, new_task_duration):
-        if not self.active_compression_task:
-            return
-        curr_duration = self.active_compression_task.get('duration', 0)
-        if curr_duration > 900 and 0 < new_task_duration <= 300:
-            if not self.active_compression_task.get('is_paused', False):
-                process = self.active_compression_task.get('process')
-                if process:
-                    try:
-                        os.kill(process.pid, signal.SIGSTOP)
-                        self.active_compression_task['is_paused'] = True
-                        self.paused_compression_tasks.append(self.active_compression_task)
-                        await self.active_compression_task['status_msg'].edit_text("⏸ **Paused:** Processing a shorter priority video first...")
-                        self.active_compression_task = None 
-                    except Exception: pass
 
     def resume_if_paused(self):
         if not self.active_compression_task and self.paused_compression_tasks:
@@ -145,6 +154,7 @@ class QueueManager:
             process = paused_task.get('process')
             if process:
                 try:
+                    logger.info("Resuming paused long task...")
                     os.kill(process.pid, signal.SIGCONT)
                 except Exception: pass
 
@@ -178,27 +188,19 @@ class QueueManager:
     async def clear_queues(self):
         """Administrative reset: stop everything and empty queues."""
         from bot.utils.progress import cancel_task
-        
-        # 1. Cancel every registered task
         for msg_id, task in list(self.all_tasks.items()):
             cancel_task(msg_id)
-            # Kill process if any
             if task.get('process'):
                 try: task['process'].kill()
                 except: pass
-            # Notify user
-            try:
-                await task['status_msg'].edit_text("❌ **Cancelled:** System Reset by Owner.")
+            try: await task['status_msg'].edit_text("❌ **Cancelled:** System Reset by Owner.")
             except: pass
-        
-        # 2. Drain queues
         while not self.download_queue.empty():
             try: self.download_queue.get_nowait(); self.download_queue.task_done()
             except: break
         while not self.compression_queue.empty():
             try: self.compression_queue.get_nowait(); self.compression_queue.task_done()
             except: break
-
         self.all_tasks = {}
         self.active_compression_task = None
         self.paused_compression_tasks = []
@@ -206,6 +208,5 @@ class QueueManager:
         self.active_download_count = 0
         self.waiting_for_slot_count = 0
         self.task_counter = 0 
-        
         from bot.services.storage_service import wipe_all_storage
         wipe_all_storage()
