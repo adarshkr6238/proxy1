@@ -60,25 +60,32 @@ class QueueManager:
         return self.download_queue.qsize() + self.compression_queue.qsize() + self.active_download_count + (1 if self.active_compression_task else 0)
 
     async def download_worker(self):
-        sem = asyncio.Semaphore(3) # Support up to 3 concurrent downloads
         while True:
             priority, count, task = await self.download_queue.get()
+            
+            # Dynamic slot waiting
+            while True:
+                # 1 slot if compression running, 2 slots if idle
+                max_slots = 1 if (self.active_compression_task and not self.active_compression_task.get('is_paused')) else 2
+                if self.active_download_count < max_slots:
+                    break
+                await asyncio.sleep(2) # Check every 2 seconds
+                
             # Non-blocking task creation
-            asyncio.create_task(self._run_download_task(task, priority, count, sem))
+            asyncio.create_task(self._run_download_task(task, priority, count))
 
-    async def _run_download_task(self, task, priority, count, sem):
-        async with sem:
-            self.active_download_count += 1
-            try:
-                await self.process_download(task)
-                # Once downloaded, move to compression queue
-                await self.compression_queue.put((priority, count, task))
-            except Exception as e:
-                logger.error(f"Download task failed: {e}")
-                self.cleanup_task(task)
-            finally:
-                self.active_download_count = max(0, self.active_download_count - 1)
-                self.download_queue.task_done()
+    async def _run_download_task(self, task, priority, count):
+        self.active_download_count += 1
+        try:
+            await self.process_download(task)
+            # Once downloaded, move to compression queue
+            await self.compression_queue.put((priority, count, task))
+        except Exception as e:
+            logger.error(f"Download task failed: {e}")
+            self.cleanup_task(task)
+        finally:
+            self.active_download_count = max(0, self.active_download_count - 1)
+            self.download_queue.task_done()
 
     async def compression_worker(self):
         while True:
@@ -170,31 +177,23 @@ class QueueManager:
 
     async def clear_queues(self):
         """Administrative reset: stop everything and empty queues."""
-        # 1. Kill active compression
         if self.active_compression_task and self.active_compression_task.get('process'):
             try: self.active_compression_task['process'].kill()
             except: pass
-        
-        # 2. Kill paused tasks
         for task in self.paused_compression_tasks:
             if task.get('process'):
                 try: task['process'].kill()
                 except: pass
-        
-        # 3. Empty the queues
         while not self.download_queue.empty():
             try: self.download_queue.get_nowait(); self.download_queue.task_done()
             except: break
-            
         while not self.compression_queue.empty():
             try: self.compression_queue.get_nowait(); self.compression_queue.task_done()
             except: break
-
         self.active_compression_task = None
         self.paused_compression_tasks = []
         self.is_paused = False
         self.active_download_count = 0
         self.task_counter = 0 
-        
         from bot.services.storage_service import wipe_all_storage
         wipe_all_storage()
