@@ -12,7 +12,7 @@ TIME_REGEX = re.compile(r"time=(\d+:\d+:\d+\.\d+)")
 
 async def get_video_info(file_path):
     cmd = [
-        'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+        'ffprobe', '-v', 'quiet', '-print_format', 'json=c=1', 
         '-show_format', '-show_streams', file_path
     ]
     process = await asyncio.create_subprocess_exec(
@@ -102,11 +102,11 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     
     while True:
         try:
-            chunk = await process.stderr.read(1024)
-            if not chunk:
+            line_bytes = await process.stderr.readline()
+            if not line_bytes:
                 break
                 
-            line = chunk.decode('utf-8', errors='ignore')
+            line = line_bytes.decode('utf-8', errors='ignore')
             
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
