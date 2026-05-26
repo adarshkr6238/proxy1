@@ -117,12 +117,13 @@ async def compress_video(input_path, output_path, preset_name, progress_callback
     
     while True:
         try:
-            line_bytes = await process.stderr.readline()
-            if not line_bytes:
+            chunk = await process.stderr.read(1024)
+            if not chunk:
                 break
                 
-            line = line_bytes.decode('utf-8', errors='ignore')
+            line = chunk.decode('utf-8', errors='ignore')
             
+            # Keep the last chunk for error reporting
             last_error_lines.append(line)
             if len(last_error_lines) > 20:
                 last_error_lines.pop(0)
