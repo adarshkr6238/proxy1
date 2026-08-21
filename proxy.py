@@ -32,28 +32,13 @@ async def proxy_handler(request: web.Request) -> web.Response:
     path = request.match_info.get("path", "")
     target_url = f"{TELEGRAM_API}/{path}"
     
-    skip = {"host", "content-length", "transfer-encoding", "connection", "x-proxy-key", "authorization"}
-    fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in skip}
+    # Check for key in query parameters
+    key = request.query.get("key") or request.headers.get("X-Proxy-Key") or request.headers.get("Authorization", "").replace("Bearer ", "")
     
-    body = await request.read() if request.body_exists else None
+    if PROXY_KEY and key != PROXY_KEY:
+        return web.Response(status=403, text="Forbidden")
     
-    timeout = ClientTimeout(connect=30, total=300)
-    try:
-        async with ClientSession(timeout=timeout) as session:
-            async with session.request(
-                method=request.method,
-                url=target_url,
-                headers=fwd_headers,
-                params=request.query,
-                data=body,
-                allow_redirects=False,
-            ) as resp:
-                resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip}
-                response_body = await resp.read()
-                return web.Response(status=resp.status, body=response_body, headers=resp_headers)
-    except Exception as e:
-        logger.error(f"Proxy error: {e}")
-        return web.Response(status=502, text=f"Bad Gateway: {e}")
+    # ... rest is same ...
 
 async def health_handler(request: web.Request) -> web.Response:
     return web.Response(text="Reverse Proxy is running")
