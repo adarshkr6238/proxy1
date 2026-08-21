@@ -31,12 +31,34 @@ CONNECT_TIMEOUT = int(os.environ.get("CONNECT_TIMEOUT", 30))
 READ_TIMEOUT = int(os.environ.get("READ_TIMEOUT", 300))
 
 
+def check_auth(request) -> bool:
+    if not PROXY_KEY:
+        return True
+    # Support X-Proxy-Key (custom)
+    if request.headers.get("X-Proxy-Key") == PROXY_KEY:
+        return True
+    # Support standard Proxy-Authorization: Bearer <key>
+    auth = request.headers.get("Proxy-Authorization", "")
+    if auth.startswith("Bearer ") and auth[7:] == PROXY_KEY:
+        return True
+    # Support standard Proxy-Authorization: Basic <base64(user:pass)>
+    if auth.startswith("Basic "):
+        import base64
+        try:
+            decoded = base64.b64decode(auth[6:]).decode()
+            # Format: user:pass - we use empty user, key as pass
+            if decoded == f":{PROXY_KEY}" or decoded.endswith(f":{PROXY_KEY}"):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 @web.middleware
 async def auth_middleware(request, handler):
-    if PROXY_KEY:
-        if request.headers.get("X-Proxy-Key") != PROXY_KEY:
-            logger.warning(f"Rejected unauthorized request from {request.remote}")
-            return web.Response(status=403, text="Forbidden: missing X-Proxy-Key")
+    if not check_auth(request):
+        logger.warning(f"Rejected unauthorized request from {request.remote}")
+        return web.Response(status=403, text="Forbidden: invalid proxy credentials")
     return await handler(request)
 
 
