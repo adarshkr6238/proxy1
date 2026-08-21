@@ -32,8 +32,8 @@ async def proxy_handler(request: web.Request) -> web.Response:
     path = request.match_info.get("path", "")
     target_url = f"{TELEGRAM_API}/{path}"
     
-    # Check for key in query parameters
-    key = request.query.get("key") or request.headers.get("X-Proxy-Key") or request.headers.get("Authorization", "").replace("Bearer ", "")
+    # Update proxy_handler in ~/proxy1_clean/proxy.py to check for X-Proxy-Key again
+    key = request.headers.get("X-Proxy-Key") or request.query.get("key") or request.headers.get("Authorization", "").replace("Bearer ", "")
     
     if PROXY_KEY and key != PROXY_KEY:
         return web.Response(status=403, text="Forbidden")
