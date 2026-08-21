@@ -1,6 +1,1 @@
-pyrogram
-tgcrypto
-aiohttp
-python-dotenv
-uvloop
-psutil
+aiohttp>=3.9.0

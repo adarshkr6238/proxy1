@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: tgbotspace-proxy
+    runtime: docker
+    plan: free
+    envVars:
+      - key: PROXY_KEY
+        sync: false
+      - key: ALLOWED_HOSTS
+        value: "api.telegram.org"
