@@ -1,11 +1,14 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
+use std::env;
 use std::error::Error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let listen_addr = "0.0.0.0:7860";
-    let listener = TcpListener::bind(listen_addr).await?;
+    let port = env::var("PORT").unwrap_or_else(|_| "7860".to_string());
+    let listen_addr = format!("0.0.0.0:{}", port);
+    
+    let listener = TcpListener::bind(&listen_addr).await?;
     println!("Listening on {}", listen_addr);
 
     loop {
@@ -21,6 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn handle_client(mut client_stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut buffer = [0; 1024];
     let n = client_stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+    
     let request = String::from_utf8_lossy(&buffer[..n]);
 
     if request.starts_with("CONNECT") {
