@@ -1,12 +1,22 @@
-use axum::{routing::get, Router};
-use std::net::SocketAddr;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{copy_bidirectional};
+use std::env;
 
 #[tokio::main]
-async fn main() {
-    let app = Router::new().route("/health", get(|| async { "operational" }));
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let listen_addr = "0.0.0.0:7860";
+    let target_addr = env::var("PROXY_TARGET").unwrap_or_else(|_| "api.telegram.org:443".to_string());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 7860));
-    println!("Listening on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = TcpListener::bind(listen_addr).await?;
+    println!("Listening on {}, proxying to {}", listen_addr, target_addr);
+
+    loop {
+        let (mut client_stream, _) = listener.accept().await?;
+        let target_addr_clone = target_addr.clone();
+
+        tokio::spawn(async move {
+            let mut target_stream = TcpStream::connect(target_addr_clone).await.unwrap();
+            let _ = copy_bidirectional(&mut client_stream, &mut target_stream).await;
+        });
+    }
 }
