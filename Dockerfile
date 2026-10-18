@@ -1,8 +1,11 @@
-FROM python:3.11-slim
+FROM rust:latest AS builder
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY proxy.py .
-ENV PORT=10000
-EXPOSE 10000
-CMD ["python", "proxy.py"]
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/telegram-proxy /app/telegram-proxy
+EXPOSE 7860
+CMD ["/app/telegram-proxy"]
